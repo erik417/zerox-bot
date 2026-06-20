@@ -303,19 +303,15 @@ PocketMine-MP (PMMP 5.x):
 - Тесты: PHPUnit с ассертами и моками
 
 ПРИМЕР КОДА (BanSystem плагин для PocketMine-MP):
-```php
+```
 <?php
-
 namespace Tagiev\bansystem\commands;
-
 use pocketmine\command\Command;
 use pocketmine\command\CommandSender;
 use pocketmine\player\Player;
 use Tagiev\bansystem\Main;
-use Tagiev\definitions\SoundIds;
 use Tagiev\utils\Helper;
 
-#[\AllowDynamicProperties]
 class BanCommand extends Command
 {
     private $plugin;
@@ -331,29 +327,21 @@ class BanCommand extends Command
 
     public function execute(CommandSender $sender, $commandLabel, array $args)
     {
-        // Проверка прав
         if (!$this->hasPermission($sender)) {
             $sender->sendMessage($this->messages["no-permission"]);
             return true;
         }
-        // Проверка кулдауна
         if ($this->isCooldown($sender)) return true;
-        // Проверка аргументов
         if (count($args) < 2) {
             $sender->sendMessage($this->messages["missing-time"]);
             return true;
         }
-        // Валидация причины, иммунитета, самобана
         $target = $this->resolveTarget($sender, $args[0]);
         if (!$target) return true;
-        // Расчёт времени
         $time = time() + intval($args[1]) * 3600;
-        // Сохранение в БД/конфиг
         $this->plugin->saveBan($target, $time, $sender->getName(), $reason);
-        // Кик если онлайн
         $player = $this->plugin->getServer()->getPlayer($target);
         if ($player) $player->kick($kickMessage);
-        // Бродкаст + статистика
         $this->plugin->getServer()->broadcastMessage($banMessage);
         $this->plugin->addBanStat($sender->getName());
         return true;
