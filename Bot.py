@@ -972,14 +972,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            # If user asks for code — ask format first
+            # If user asks for code — generate directly
             if is_code_request(user_text):
-                context.user_data["pending_code"] = user_text
-                context.user_data["pending_code_msg_id"] = update.message.message_id
-                await update.message.reply_text(
-                    "Скинуть файлом (.zip) или кодом?",
-                    reply_markup=CODE_FORMAT_KEYBOARD,
-                )
+                context.user_data["processing"] = True
+                try:
+                    thinking_msg = await update.message.reply_text("⏳ Генерирую код...", reply_markup=STOP_BUTTON)
+                    code = await generate_code(user_text)
+                    if code == "TIMEOUT" or not code:
+                        await thinking_msg.edit_text("⚠️ Не удалось сгенерировать код.")
+                        return
+                    cost = calc_cost(len(code))
+                    if TOKEN_MGR.get_balance(user_id) < cost:
+                        await thinking_msg.edit_text("❌ Недостаточно токенов.")
+                        return
+                    TOKEN_MGR.spend(user_id, cost)
+                    await thinking_msg.delete()
+                    if len(code) > 4096:
+                        ext = extension_from_query(user_text)
+                        buf = io.BytesIO()
+                        buf.write(code.encode())
+                        buf.seek(0)
+                        await update.message.reply_document(
+                            document=InputFile(buf, filename=f"code{ext}"),
+                            caption=f"✅ Код по запросу: {user_text[:50]}",
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"<pre>{html.escape(code)}</pre>",
+                            parse_mode="HTML",
+                        )
+                finally:
+                    context.user_data["processing"] = False
                 return
 
             # If user asks for a project — auto-generate and send as zip
