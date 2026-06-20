@@ -2380,12 +2380,13 @@ def main():
         if space_id:
             owner, name = space_id.replace("/", "-", 1).split("-", 1)
             space_url = f"https://{owner}-{name}.hf.space"
+            webhook_secret = os.environ.get("WEBHOOK_SECRET", "zerox_bot_secret")
             app.run_webhook(
                 listen="0.0.0.0",
                 port=7860,
                 url_path=TOKEN,
                 webhook_url=f"{space_url}/{TOKEN}",
-                secret_token=TOKEN,
+                secret_token=webhook_secret,
             )
         else:
             app.run_polling()
