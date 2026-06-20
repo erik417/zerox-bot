@@ -30,7 +30,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
 AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "600"))
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
 AI_API_URL = os.environ.get("AI_API_URL", "https://api.groq.com/openai/v1/chat/completions")
-AI_MODEL = os.environ.get("AI_MODEL", "llama3-70b-8192")
+AI_MODEL = os.environ.get("AI_MODEL", "llama-3.3-70b-versatile")
 
 # ═══════════════════════════════════════════════
 # Token System
@@ -420,7 +420,7 @@ CHAT_HISTORY = ChatHistory()
 async def ask_ollama(prompt: str, temperature: float = 0.5, model: str = None, max_tokens: int = 64) -> Optional[str]:
     if AI_API_KEY:
         payload = {
-            "model": model or AI_MODEL,
+            "model": AI_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens or 4096,
@@ -431,13 +431,16 @@ async def ask_ollama(prompt: str, temperature: float = 0.5, model: str = None, m
             async with httpx.AsyncClient(timeout=httpx.Timeout(AI_TIMEOUT)) as client:
                 resp = await client.post(AI_API_URL, json=payload, headers=headers)
             if resp.status_code != 200:
+                print(f"Groq API error {resp.status_code}: {resp.text[:500]}")
                 return None
             data = resp.json()
             answer = data["choices"][0]["message"]["content"].strip()
             return answer if answer else None
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as e:
+            print(f"Groq API timeout: {e}")
             return "TIMEOUT"
-        except Exception:
+        except Exception as e:
+            print(f"Groq API error: {e}")
             return None
 
     payload = {
