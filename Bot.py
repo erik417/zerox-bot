@@ -416,7 +416,7 @@ async def ask_ollama(prompt: str, temperature: float = 0.5, model: str = None, m
             "model": AI_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": max_tokens or 4096,
+            "max_tokens": max_tokens or 8192,
             "stream": False,
         }
         headers = {"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"}
@@ -635,12 +635,15 @@ async def generate_code(query: str) -> Optional[str]:
         f"Структура: классы/функции с реальной логикой, работа с БД/API/файлами, "
         f"обработка ошибок, логирование, тесты, точка входа. "
         f"Каждая функция должна содержать рабочий код, а не pass/stub/todo/return.\n"
-        f"CRITICAL: Return ONLY raw code. NO explanations, NO disclaimers, "
+        f"CRITICAL: Напиши МИНИМУМ 2000 строк кода, максимум 10000 строк. "
+        f"Реализуй все возможные функции, методы, обработчики, утилиты. "
+        f"Не экономь строки — каждый метод должен быть полностью реализован.\n"
+        f"Return ONLY raw code. NO explanations, NO disclaimers, "
         f"NO markdown, NO backticks, NO descriptions before or after the code. "
         f"NOTHING except the code itself.\n"
         f"Code:"
     )
-    code = await ask_ollama(prompt, temperature=0.3, max_tokens=None)
+    code = await ask_ollama(prompt, temperature=0.3, max_tokens=32768)
     if code and code != "TIMEOUT":
         code = strip_code_fence(code)
     return code
