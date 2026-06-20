@@ -7,14 +7,12 @@ import zipfile
 import asyncio
 import logging
 import random
-import ssl
 from datetime import date, timedelta
 from typing import Optional
 
 import httpx
 from telegram import Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes
-from telegram.request import HTTPXRequest
 
 # ═══════════════════════════════════════════════
 # Configuration
@@ -2333,17 +2331,9 @@ def main():
 
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
 
+    builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
     if proxy:
-        custom_request = HTTPXRequest(proxy_url=proxy)
-    else:
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        ssl_ctx.maximum_version = ssl.TLSVersion.TLSv1_2
-        ssl_ctx.set_alpn_protocols(["http/1.1"])
-        custom_client = httpx.AsyncClient(verify=ssl_ctx, timeout=httpx.Timeout(120.0, connect=60.0))
-        custom_request = HTTPXRequest(client=custom_client)
-
-    builder = ApplicationBuilder().token(TOKEN).post_init(post_init).request(custom_request)
+        builder = builder.proxy_url(proxy)
     app = builder.build()
 
     app.add_handler(CommandHandler("start", handle_start))
