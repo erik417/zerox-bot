@@ -2327,6 +2327,11 @@ def main():
         logger.error("BOT_TOKEN environment variable not set!")
         return
 
+    print(f"AI_API_KEY={'SET' if AI_API_KEY else 'NOT SET'}")
+    print(f"AI_MODEL={AI_MODEL}")
+    print(f"WORKER_URL={os.environ.get('WORKER_URL', 'NOT SET')}")
+    print(f"AI_API_URL={AI_API_URL}")
+
     async def post_init(app):
         await app.bot.set_my_commands([
             BotCommand("start", "Запустить бота"),
