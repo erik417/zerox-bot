@@ -2329,7 +2329,14 @@ def main():
             BotCommand("call", "Позвать всех участников с ролями"),
         ])
 
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    builder = ApplicationBuilder().token(TOKEN).post_init(post_init)
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+    if proxy:
+        try:
+            builder = builder.proxy_url(proxy)
+        except Exception:
+            pass
+    app = builder.build()
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("balance", handle_balance))
@@ -2366,7 +2373,19 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & filters.UpdateType.EDITED_MESSAGE, handle_edited_message))
     # silent start
     try:
-        app.run_polling()
+        space_id = os.environ.get("SPACE_ID")
+        if space_id:
+            owner, name = space_id.replace("/", "-", 1).split("-", 1)
+            space_url = f"https://{owner}-{name}.hf.space"
+            app.run_webhook(
+                listen="0.0.0.0",
+                port=7860,
+                url_path=TOKEN,
+                webhook_url=f"{space_url}/{TOKEN}",
+                secret_token=TOKEN,
+            )
+        else:
+            app.run_polling()
     except KeyboardInterrupt:
         pass
 
