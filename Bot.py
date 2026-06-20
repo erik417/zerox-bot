@@ -273,15 +273,17 @@ WordPress:
 - Meta boxes, REST API: register_rest_route()
 - WP_Query, get_posts(), wp_insert_post(), update_post_meta()
 
-PocketMine-MP:
-- PluginBase, onEnable(), onDisable(), getServer(), getLogger()
-- Commands: class MyCmd extends Command implements PluginIdentifiableCommand
-- Events: onPlayerJoin(PlayerJoinEvent $e), getHandlerList()
-- Listeners: @EventHandler, $plugin->getServer()->getPluginManager()->registerEvents()
-- Tasks: Task extends Task, $this->getScheduler()->scheduleRepeatingTask()
-- Forms: SimpleForm, ModalForm, CustomForm
-- Config YAML: new Config($this->getDataFolder()."config.yml", Config::YAML)
-- Inventory, Blocks, Entities, Network Packets
+PocketMine-MP (PMMP 5.x):
+- PluginBase: class Main extends PluginBase { protected function onEnable(): void {} }
+- Команды: class BanCmd extends Command { public function execute(CommandSender $sender, string $label, array $args): void {} }
+- Events: class BanListener implements Listener { #[EventHandler] public function onPlayerJoin(PlayerJoinEvent $e): void {} }
+- Регистрация: $this->getServer()->getPluginManager()->registerEvents(new BanListener(), $this)
+- Tasks: $this->getScheduler()->scheduleRepeatingTask(new MyTask($this), 20)
+- Forms: $form = new SimpleForm(fn(Player $p, ?int $d) => ...); $form->setTitle("Title"); $p->sendForm($form)
+- Config: $this->saveDefaultConfig(); $cfg = $this->getConfig(); $cfg->get("key", "default")
+- SQLite: new SQLite3($this->getDataFolder() . "database.db")
+- Обработка ошибок: try/catch в каждом обращении к БД
+- API: Player::kick(), Player::ban(), Server::getInstance()->getNameBans()->addBan($name, "reason", null, "Staff")
 
 БАЗЫ ДАННЫХ:
 - PDO: new PDO("mysql:host=...;dbname=...", $u, $p, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION])
@@ -623,7 +625,7 @@ def strip_code_fence(code: str) -> str:
 
 async def generate_code(query: str) -> Optional[str]:
     ql = query.lower()
-    is_php = any(kw in ql for kw in ["php", "laravel", "symfony", "wordpress", "composer", "pocketmine", "pdo"])
+    is_php = any(kw in ql for kw in ["php", "laravel", "symfony", "wordpress", "composer", "pocketmine", "pdo", "плагин", "plugin", "bansystem"])
     training = PHP_TRAINING if is_php else ""
 
     prompt = (
