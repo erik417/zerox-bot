@@ -7,8 +7,7 @@ import zipfile
 import asyncio
 import logging
 import random
-import time
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 import httpx
@@ -28,17 +27,10 @@ TOKEN = os.environ.get("BOT_TOKEN")
 MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
 FALLBACK_MODEL = "nchapman/dolphin3.0-qwen2.5:3b"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "30"))  # per-provider timeout
+AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "600"))
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
 AI_API_URL = os.environ.get("AI_API_URL", "https://api.groq.com/openai/v1/chat/completions")
 AI_MODEL = os.environ.get("AI_MODEL", "llama-3.3-70b-versatile")
-INSPECTOR_MODEL = os.environ.get("INSPECTOR_MODEL", AI_MODEL)
-CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
-CEREBRAS_API_URL = os.environ.get("CEREBRAS_API_URL", "https://api.cerebras.ai/v1/chat/completions")
-CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "gpt-oss-120b")
-NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
-NVIDIA_API_URL = os.environ.get("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
 
 # ═══════════════════════════════════════════════
 # Token System
@@ -46,8 +38,6 @@ NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
 
 TOKENS_PER_DAY = 20
 TOKENS_FILE = "tokens.json"
-MAX_TOKENS = 35
-TOKEN_REGEN_INTERVAL = 1200  # seconds per 1 token (~12h to full: 35*1200=42000s=11.67h)
 
 class TokenManager:
     def __init__(self):
@@ -65,65 +55,22 @@ class TokenManager:
         with open(TOKENS_FILE, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
 
-    def _regen(self, user_id: int):
-        """Regenerate tokens based on elapsed time. Never exceeds MAX_TOKENS."""
-        uid = str(user_id)
-        now = time.time()
-        entry = self.data.get(uid)
-        if entry is None:
-            self.data[uid] = {"tokens": MAX_TOKENS, "last_regen": now}
-            self._save()
-            return
-        tokens = entry.get("tokens", 0)
-        if tokens > MAX_TOKENS:
-            entry["tokens"] = MAX_TOKENS
-            entry["last_regen"] = now
-            self._save()
-            return
-        if tokens == MAX_TOKENS:
-            entry["last_regen"] = now
-            return
-        last = entry.get("last_regen", now)
-        elapsed = now - last
-        gained = int(elapsed / TOKEN_REGEN_INTERVAL)
-        if gained > 0:
-            tokens = min(MAX_TOKENS, tokens + gained)
-            entry["tokens"] = tokens
-            entry["last_regen"] = now
-            self._save()
+    def _today(self) -> str:
+        return date.today().isoformat()
 
     def get_balance(self, user_id: int) -> int:
-        self._regen(user_id)
         return self.data.get(str(user_id), {}).get("tokens", 0)
 
     def daily_refill(self, user_id: int):
-        # deprecated — regen handles it, kept for compatibility
-        self.get_balance(user_id)
-
-    def spend(self, user_id: int, cost: int = 1) -> bool:
         uid = str(user_id)
-        self._regen(user_id)
-        bal = self.data.get(uid, {}).get("tokens", 0)
-        if bal < cost:
-            return False
-        self.data[uid]["tokens"] = bal - cost
-        self._save()
-        return True
-
-    def set_tokens(self, user_id: int, amount: int):
-        uid = str(user_id)
-        if uid not in self.data:
-            self.data[uid] = {}
-        self.data[uid]["tokens"] = max(0, min(MAX_TOKENS, amount))
-        self.data[uid]["last_regen"] = time.time()
-        self._save()
-
-    def add_tokens(self, user_id: int, amount: int):
-        uid = str(user_id)
-        cur = self.get_balance(user_id)
-        self.data[uid]["tokens"] = min(MAX_TOKENS, cur + amount)
-        self.data[uid]["last_regen"] = time.time()
-        self._save()
+        today = self._today()
+        entry = self.data.get(uid, {})
+        if entry.get("daily") != today:
+            if uid not in self.data:
+                self.data[uid] = {}
+            self.data[uid]["tokens"] = self.data[uid].get("tokens", 0) + TOKENS_PER_DAY
+            self.data[uid]["daily"] = today
+            self._save()
 
     def spend(self, user_id: int, cost: int = 1) -> bool:
         uid = str(user_id)
@@ -414,9 +361,10 @@ GENERATOR_PROMPT = (
 )
 
 INSPECTOR_PROMPT = (
-    "Ты — эксперт code review. "
-    "Если нашёл ошибки — верни ИСПРАВЛЕННЫЙ код ПОЛНОСТЬЮ, без пояснений. "
-    "НЕ пиши анализ, НЕ перечисляй проблемы, НЕ используй таблицы. "
+    "Ты — эксперт code review и security audit. "
+    "Найди ВСЕ баги, уязвимости, проблемы производительности и стиля. "
+    "Будь максимально придирчивым. "
+    "Если нашёл проблемы — верни ИСПРАВЛЕННЫЙ код ПОЛНОСТЬЮ. "
     "Если код идеален — ответь ровно 'ОК'."
 )
 
@@ -471,7 +419,7 @@ async def iterative_code_improvement(
     user_id: int,
     system_prompt: str,
     initial_code: str = None,
-    max_rounds: int = 2,
+    max_rounds: int = 3,
     language: str = "",
 ) -> Optional[str]:
     """Generator ↔ Inspector iterative loop. Roles pass code back and forth
@@ -500,10 +448,8 @@ async def iterative_code_improvement(
                 f"Сгенерируй код. Только код, без пояснений:\n"
             )
 
-        new_code = await ask_ollama(gen_prompt, temperature=0.3, max_tokens=1024)
+        new_code = await ask_ollama(gen_prompt, temperature=0.3, max_tokens=2048)
         if not new_code or new_code == "TIMEOUT" or (isinstance(new_code, str) and new_code.startswith("API_ERROR")):
-            if isinstance(new_code, str) and "429" in new_code:
-                code = code or "(rate limit)"
             break
         new_code = strip_code_fence(new_code)
         if not new_code:
@@ -512,12 +458,13 @@ async def iterative_code_improvement(
         # === Inspector step ===
         insp_prompt = (
             f"{INSPECTOR_PROMPT}\n\n{lessons}\n\n"
-            f"Проверь этот код. Если есть ошибки — верни ИСПРАВЛЕННЫЙ код. "
-            f"НЕ пиши анализ, НЕ перечисляй проблемы, ТОЛЬКО код:\n"
-            f"```\n{new_code}\n```\n"
+            f"Проверь этот код. Найди ВСЕ ошибки, баги, уязвимости:\n"
+            f"```\n{new_code}\n```\n\n"
+            f"Если есть ошибки — верни ИСПРАВЛЕННЫЙ код ПОЛНОСТЬЮ.\n"
+            f"Если код идеален — ответь ровно 'ОК'."
         )
 
-        review = await ask_ollama(insp_prompt, temperature=0.2, max_tokens=512)
+        review = await ask_ollama(insp_prompt, temperature=0.2, max_tokens=1024)
         if not review or review == "TIMEOUT" or (isinstance(review, str) and review.startswith("API_ERROR")):
             code = new_code
             break
@@ -525,13 +472,6 @@ async def iterative_code_improvement(
         review = strip_code_fence(review)
 
         if review.strip().upper() in ("OK", "ОК", "ОК.", "OK.") or len(review.strip()) < 5:
-            code = new_code
-            break
-
-        # Detect if Inspector returned analysis instead of code
-        if is_review_not_code(review):
-            # Inspector reported bugs but didn't fix — treat as "needs fixing" but keep Generator output
-            LESSON_MGR.add_lesson(user_id, f"Round {round_idx+1}: inspector report", review[:300], language)
             code = new_code
             break
 
@@ -546,25 +486,6 @@ async def iterative_code_improvement(
 # ═══════════════════════════════════════════════
 
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]")
-
-def is_review_not_code(text: str) -> bool:
-    """Detect if AI returned an analysis/review instead of code."""
-    low = text.strip().lower()
-    if not low:
-        return False
-    # Has a markdown table with problem/reason columns
-    if "| № |" in low and "проблем" in low:
-        return True
-    if "| № | проблема |" in low:
-        return True
-    # Contains review/result keywords early in the text
-    first_line = low.split("\n")[0] if low else ""
-    if any(kw in first_line for kw in ("результат проверки", "результат анализа", "отчёт", "найденные проблемы")):
-        return True
-    # Has numbered list of problems
-    if re.search(r"^\d+[\)\.]\s*(ошибк|проблем|уязвимост|баг)", low, re.MULTILINE):
-        return True
-    return False
 
 def has_chinese(text: str) -> bool:
     return bool(CHINESE_RE.search(text))
@@ -667,115 +588,59 @@ class ChatHistory:
 
 CHAT_HISTORY = ChatHistory()
 
-# Rotating API key support: comma-separated keys, auto-rotate on 429
-_api_keys = [k.strip() for k in AI_API_KEY.split(",") if k.strip()] if AI_API_KEY else []
-_api_key_idx = 0
-_http_client = None  # lazy init in ask_ollama
-
 async def ask_ollama(prompt: str, temperature: float = 0.5, model: str = None, max_tokens: int = 64) -> Optional[str]:
-    global _api_key_idx, _http_client
-    if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=httpx.Timeout(AI_TIMEOUT))
-    t0 = time.time()
-    err = None
-
-    # Try NVIDIA first
-    if NVIDIA_API_KEY:
-        t1 = time.time()
-        print(f"[ask_ollama] Trying NVIDIA...")
+    used_model = model or AI_MODEL
+    if AI_API_KEY:
+        payload = {
+            "model": used_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens or 8192,
+            "stream": False,
+        }
+        headers = {"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"}
         try:
-            payload = {
-                "model": NVIDIA_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": temperature,
-                "max_tokens": max_tokens or 8192,
-                "stream": False,
-            }
-            resp = await _http_client.post(NVIDIA_API_URL, json=payload, headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"})
-            dt = time.time() - t1
-            print(f"[ask_ollama] NVIDIA responded in {dt:.1f}s with {resp.status_code}")
-            if resp.status_code == 200:
-                data = resp.json()
-                choice = data["choices"][0]
-                answer = (choice.get("message") or {}).get("content") or choice.get("text") or str(choice)
-                answer = answer.strip()
-                if answer:
-                    print(f"[ask_ollama] OK ({time.time()-t0:.1f}s)")
-                    return answer
-            print(f"[ask_ollama] NVIDIA {resp.status_code}: {resp.text[:100]}")
+            async with httpx.AsyncClient(timeout=httpx.Timeout(AI_TIMEOUT)) as client:
+                resp = await client.post(AI_API_URL, json=payload, headers=headers)
+            if resp.status_code != 200:
+                err = f"{resp.status_code}: {resp.text[:200]}"
+                print(f"Groq API error: {err}")
+                return f"API_ERROR:{err}"
+            data = resp.json()
+            answer = data["choices"][0]["message"]["content"].strip()
+            return answer if answer else None
+        except httpx.TimeoutException as e:
+            print(f"Groq API timeout: {e}")
+            return "TIMEOUT"
         except Exception as e:
-            print(f"[ask_ollama] NVIDIA error: {e}")
+            print(f"Groq API error: {e}")
+            return None
 
-    # Try Cerebras
-    if CEREBRAS_API_KEY:
-        t1 = time.time()
-        print(f"[ask_ollama] Trying Cerebras...")
-        try:
-            payload = {
-                "model": CEREBRAS_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": temperature,
-                "max_completion_tokens": (max_tokens or 1024) * 2,
-                "reasoning_effort": "low",
-                "stream": False,
-            }
-            resp = await _http_client.post(CEREBRAS_API_URL, json=payload, headers={"Authorization": f"Bearer {CEREBRAS_API_KEY}", "Content-Type": "application/json"})
-            dt = time.time() - t1
-            print(f"[ask_ollama] Cerebras responded in {dt:.1f}s with {resp.status_code}")
-            if resp.status_code == 200:
-                data = resp.json()
-                choice = data["choices"][0]
-                msg = choice.get("message") or {}
-                answer = msg.get("content") or msg.get("reasoning") or choice.get("text") or str(choice)
-                answer = answer.strip()
-                if answer:
-                    print(f"[ask_ollama] OK ({time.time()-t0:.1f}s)")
-                    return answer
-            print(f"[ask_ollama] Cerebras {resp.status_code}: {resp.text[:100]}")
-        except Exception as e:
-            print(f"[ask_ollama] Cerebras error: {e}")
-
-    # Try Groq (key rotation)
-    if _api_keys:
-        t1 = time.time()
-        used_model = model or AI_MODEL
-        keys_tried = set()
-        while len(keys_tried) < len(_api_keys):
-            key = _api_keys[_api_key_idx]
-            keys_tried.add(_api_key_idx)
-            try:
-                payload = {
-                    "model": used_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens or 8192,
-                    "stream": False,
-                }
-                resp = await _http_client.post(AI_API_URL, json=payload, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-                dt = time.time() - t1
-                if resp.status_code == 200:
-                    data = resp.json()
-                    answer = data["choices"][0]["message"]["content"].strip()
-                    if answer:
-                        print(f"[ask_ollama] OK via Groq ({time.time()-t0:.1f}s)")
-                        return answer
-                elif resp.status_code == 429:
-                    print(f"[ask_ollama] Groq key {_api_key_idx} 429")
-                    _api_key_idx = (_api_key_idx + 1) % len(_api_keys)
-                    continue
-                else:
-                    err = f"API_ERROR:Groq:{resp.status_code}"
-                    print(f"[ask_ollama] {err}")
-                    return err
-            except httpx.TimeoutException:
-                print(f"[ask_ollama] Groq timeout")
-                return "TIMEOUT"
-            except Exception as e:
-                print(f"[ask_ollama] Groq error: {e}")
-                return None
-
-    print(f"[ask_ollama] All providers failed ({time.time()-t0:.1f}s)")
-    return err or f"API_ERROR:all_failed"
+    payload = {
+        "model": model or MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": temperature,
+            "stop": ["User:", "\n\n---"],
+        },
+    }
+    if max_tokens is not None:
+        payload["options"]["num_predict"] = max_tokens
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(AI_TIMEOUT)) as client:
+            resp = await client.post(OLLAMA_URL, json=payload)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        answer = data.get("response", "").strip()
+        if not answer:
+            return None
+        return answer
+    except httpx.TimeoutException:
+        return "TIMEOUT"
+    except Exception:
+        return None
 
 # ═══════════════════════════════════════════════
 # Stop Button + Task Tracking
@@ -813,52 +678,6 @@ async def handle_stop_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # ═══════════════════════════════════════════════
 # Fast Reply Animation (2-3 chunks)
 # ═══════════════════════════════════════════════
-
-async def animate_thinking(msg, cancel_event: asyncio.Event, texts: list, repeat=1):
-    """Loop through texts while cancel_event is not set, updating msg.
-    After `repeat` full cycles, continues cycling the second half (Думаю...)."""
-    i = 0
-    mid = len(texts) // 2
-    if repeat > 1 and mid > 0:
-        full = texts[:]
-        while not cancel_event.is_set():
-            idx = i % len(full)
-            try:
-                await msg.edit_text(full[idx], reply_markup=STOP_BUTTON)
-            except Exception:
-                pass
-            i += 1
-            if i >= len(full) * repeat:
-                break
-            try:
-                await asyncio.wait_for(cancel_event.wait(), timeout=0.6)
-            except asyncio.TimeoutError:
-                pass
-        # Continue with just the second half
-        if cancel_event.is_set():
-            return
-        i = 0
-        while not cancel_event.is_set():
-            try:
-                await msg.edit_text(texts[mid + (i % (len(texts) - mid))], reply_markup=STOP_BUTTON)
-            except Exception:
-                pass
-            i += 1
-            try:
-                await asyncio.wait_for(cancel_event.wait(), timeout=0.6)
-            except asyncio.TimeoutError:
-                pass
-    else:
-        while not cancel_event.is_set():
-            try:
-                await msg.edit_text(texts[i % len(texts)], reply_markup=STOP_BUTTON)
-            except Exception:
-                pass
-            i += 1
-            try:
-                await asyncio.wait_for(cancel_event.wait(), timeout=0.6)
-            except asyncio.TimeoutError:
-                pass
 
 async def animate_reply(msg, full_text: str, reply_markup=None, cancel_event: asyncio.Event = None):
     if not full_text or (cancel_event and cancel_event.is_set()):
@@ -906,98 +725,13 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Просто напиши что-нибудь!",
     )
 
-async def animate_balance_callback(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    data = job.data
-    current = data['counter'] + 1
-    target = data['target']
-    bar_len = 15
-    filled_bars = int(current / max(target, 1) * bar_len)
-    bar = '█' * filled_bars + '░' * (bar_len - filled_bars)
-    if current >= target:
-        await data['message'].edit_text(f"💎 Твой баланс: {target} токенов")
-        job.schedule_removal()
-    else:
-        data['counter'] = current
-        try:
-            await data['message'].edit_text(f"💎 Пополняю баланс...\n{bar} {current}/{target}")
-        except:
-            pass
-
 async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_user.id, update.effective_user.username)
     uid = update.effective_user.id
     bal = TOKEN_MGR.get_balance(uid)
-    if bal <= 3:
-        await update.message.reply_text(f"💎 Твой баланс: {bal} токенов")
-        return
-    msg = await update.message.reply_text("💎 Пополняю баланс...")
-    context.job_queue.run_repeating(
-        animate_balance_callback,
-        interval=0.3, first=0.3,
-        data={'target': bal, 'counter': 0, 'message': msg, 'uid': uid},
+    await update.message.reply_text(
+        f"💎 Твой баланс: {bal} токенов",
     )
-
-async def handle_apikeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Check Groq API key limits."""
-    await update.message.reply_text("🔍 Проверяю API ключи...")
-    lines = []
-    if _api_keys:
-        lines.append(f"Groq ключей: {len(_api_keys)}, активный: #{_api_key_idx + 1}")
-    else:
-        lines.append("Groq: нет ключей")
-    lines.append("")
-    import httpx
-    for i, key in enumerate(_api_keys or []):
-        masked = key[:12] + "..." + key[-4:]
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(15)) as client:
-                resp = await client.post(
-                    AI_API_URL,
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                )
-                remaining = resp.headers.get("x-ratelimit-remaining-tokens", "?")
-                limit = resp.headers.get("x-ratelimit-limit-tokens", "?")
-                code = resp.status_code
-                extra = "" if code == 200 else f" ({resp.text[:80]})"
-                status = "✅" if code == 200 else "❌"
-                lines.append(f"{status} Groq #{i+1}: {masked} — {remaining}/{limit} TPD{extra}")
-        except Exception as e:
-            lines.append(f"❌ Groq #{i+1}: {masked} — ошибка: {str(e)[:80]}")
-    # Check Cerebras
-    if CEREBRAS_API_KEY:
-        masked = CEREBRAS_API_KEY[:12] + "..." + CEREBRAS_API_KEY[-4:]
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(15)) as client:
-                resp = await client.post(
-                    CEREBRAS_API_URL,
-                    headers={"Authorization": f"Bearer {CEREBRAS_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": CEREBRAS_MODEL, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                )
-                code = resp.status_code
-                extra = "" if code == 200 else f" ({resp.text[:80]})"
-                status = "✅" if code == 200 else "❌"
-                lines.append(f"{status} Cerebras: {masked}{extra}")
-        except Exception as e:
-            lines.append(f"❌ Cerebras: {masked} — ошибка: {str(e)[:80]}")
-    # Check NVIDIA
-    if NVIDIA_API_KEY:
-        masked = NVIDIA_API_KEY[:12] + "..." + NVIDIA_API_KEY[-4:]
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(15)) as client:
-                resp = await client.post(
-                    NVIDIA_API_URL,
-                    headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": NVIDIA_MODEL, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
-                )
-                code = resp.status_code
-                extra = "" if code == 200 else f" ({resp.text[:80]})"
-                status = "✅" if code == 200 else "❌"
-                lines.append(f"{status} NVIDIA: {masked}{extra}")
-        except Exception as e:
-            lines.append(f"❌ NVIDIA: {masked} — ошибка: {str(e)[:80]}")
-    await update.message.reply_text("\n".join(lines))
 
 # ═══════════════════════════════════════════════
 # Code Helper
@@ -1180,7 +914,7 @@ async def generate_project_structure(query: str, user_id: int = 0) -> Optional[d
                 f"Если есть ошибки — верни ИСПРАВЛЕННЫЙ код полностью.\n"
                 f"Если код идеален — ответь 'ОК'."
             )
-            review = await ask_ollama(insp_prompt, temperature=0.2, max_tokens=1024, model=INSPECTOR_MODEL)
+            review = await ask_ollama(insp_prompt, temperature=0.2, max_tokens=1024)
             if review and review != "TIMEOUT" and not review.startswith("API_ERROR"):
                 review = strip_code_fence(review)
                 if review.strip().upper() not in ("OK", "ОК", "ОК.", "OK.") and len(review.strip()) >= 5:
@@ -1219,23 +953,11 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if query.data == "code_zip":
             await query.edit_message_text("⏳ Генерирую проект...", reply_markup=STOP_BUTTON)
-            anim_task = asyncio.create_task(animate_thinking(query, _get_cancel_flag(user_id), [
-                "⏳ Генерирую проект...",
-                "⏳ Генерирую проект..",
-                "⏳ Генерирую проект.",
-                "⏳ Генерирую проект..",
-                "⏳ Думаю...",
-                "⏳ Думаю..",
-                "⏳ Думаю.",
-                "⏳ Думаю..",
-            ], repeat=2))
             if TOKEN_MGR.get_balance(user_id) < 5:
-                anim_task.cancel()
                 await query.edit_message_text("❌ Недостаточно токенов для генерации проекта.")
                 return
             TOKEN_MGR.spend(user_id, 5)
             project = await generate_project_structure(code_query, user_id)
-            anim_task.cancel()
             if not project:
                 await query.edit_message_text("⚠️ Не удалось сгенерировать проект.")
                 return
@@ -1263,20 +985,9 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 _running_tasks[user_id] = ai_task
                 try:
                     await query.edit_message_text("⏳ Генерирую код...", reply_markup=STOP_BUTTON)
-                    anim_task = asyncio.create_task(animate_thinking(query, _get_cancel_flag(user_id), [
-                        "⏳ Генерирую код...",
-                        "⏳ Генерирую код..",
-                        "⏳ Генерирую код.",
-                        "⏳ Генерирую код..",
-                        "⏳ Думаю...",
-                        "⏳ Думаю..",
-                        "⏳ Думаю.",
-                        "⏳ Думаю..",
-                    ], repeat=2))
                     code = await ai_task
                 except asyncio.CancelledError:
                     _get_cancel_flag(user_id).clear()
-                    anim_task.cancel()
                     try:
                         await query.edit_message_text("⏹ Остановлено")
                     except Exception:
@@ -1284,7 +995,6 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     return
                 finally:
                     _running_tasks.pop(user_id, None)
-                anim_task.cancel()
 
                 if not code or code == "TIMEOUT" or (isinstance(code, str) and code.startswith("API_ERROR")):
                     reason = "таймаут" if code == "TIMEOUT" else (code[len("API_ERROR:"):] if (isinstance(code, str) and code.startswith("API_ERROR")) else "пустой ответ")
@@ -1622,19 +1332,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["processing"] = True
                 try:
                     thinking_msg = await update.message.reply_text("⏳ Генерирую код...", reply_markup=STOP_BUTTON)
-                    cancel = _get_cancel_flag(user_id)
-                    anim_task = asyncio.create_task(animate_thinking(thinking_msg, cancel, [
-                        "⏳ Генерирую код...",
-                        "⏳ Генерирую код..",
-                        "⏳ Генерирую код.",
-                        "⏳ Генерирую код..",
-                        "⏳ Думаю...",
-                        "⏳ Думаю..",
-                        "⏳ Думаю.",
-                        "⏳ Думаю..",
-                    ], repeat=2))
                     code = await generate_code(user_text, user_id)
-                    anim_task.cancel()
                     if code == "TIMEOUT" or not code or (isinstance(code, str) and code.startswith("API_ERROR")):
                         reason = "таймаут" if code == "TIMEOUT" else code[len("API_ERROR:"):] if (isinstance(code, str) and code.startswith("API_ERROR")) else "пустой ответ"
                         await thinking_msg.edit_text(f"⚠️ Не удалось сгенерировать код ({reason}).")
@@ -1653,18 +1351,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # If user asks for a project — auto-generate and send as zip
             if is_project_request(user_text):
                 thinking_msg = await update.message.reply_text("⏳ Генерирую проект...", reply_markup=STOP_BUTTON)
-                cancel = _get_cancel_flag(user_id)
-                cancel.clear()
-                anim_task = asyncio.create_task(animate_thinking(thinking_msg, cancel, [
-                    "⏳ Генерирую проект...",
-                    "⏳ Генерирую проект..",
-                    "⏳ Генерирую проект.",
-                    "⏳ Генерирую проект..",
-                    "⏳ Думаю...",
-                    "⏳ Думаю..",
-                    "⏳ Думаю.",
-                    "⏳ Думаю..",
-                ], repeat=2))
                 start = asyncio.get_event_loop().time()
                 _get_cancel_flag(user_id).clear()
 
@@ -1700,7 +1386,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     code = await ai_task
                 except asyncio.CancelledError:
                     _get_cancel_flag(user_id).clear()
-                    anim_task.cancel()
                     try:
                         await thinking_msg.delete()
                     except Exception:
@@ -1712,7 +1397,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
                 finally:
                     _running_tasks.pop(user_id, None)
-                anim_task.cancel()
 
                 if code == "TIMEOUT" or not code or (isinstance(code, str) and code.startswith("API_ERROR")):
                     reason = "таймаут" if code == "TIMEOUT" else code[len("API_ERROR:"):] if (isinstance(code, str) and code.startswith("API_ERROR")) else "пустой ответ"
@@ -1754,19 +1438,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 has_code_context = True
 
             thinking_msg = await update.message.reply_text("⏳", reply_markup=STOP_BUTTON)
-            cancel = _get_cancel_flag(user_id)
-            anim_task = asyncio.create_task(animate_thinking(thinking_msg, cancel, [
-                "⏳",
-                "⏳.",
-                "⏳..",
-                "⏳...",
-                "⏳..",
-                "⏳.",
-                "⏳ Думаю...",
-                "⏳ Думаю..",
-                "⏳ Думаю.",
-                "⏳ Думаю..",
-            ], repeat=2))
             start = asyncio.get_event_loop().time()
 
             tokens_spent = 0
@@ -1792,7 +1463,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         max_rounds=2,
                     )
                     if improved and improved != "TIMEOUT" and not improved.startswith("API_ERROR"):
-                        answer = f"Исправленный код:\n<pre>{html.escape(improved[:3000])}</pre>"
+                        return improved
 
                 history_context = CHAT_HISTORY.format_prompt(user_id)
                 prompt = f"{SYSTEM_PROMPT}\n{file_context}\n\n{history_context}ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\nUser: {user_text}\nAssistant:".strip()
@@ -1937,7 +1608,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             finally:
                 _running_tasks.pop(user_id, None)
-                anim_task.cancel()
         finally:
             context.user_data["processing"] = False
 
@@ -2126,54 +1796,25 @@ async def handle_zerox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_analysis = any(w in user_text.lower() for w in ["ошибк", "баг", "bug", "review", "анализ", "провер", "проблем", "качеств", "исправ", "code review", "найди", "найти", "покажи"])
 
     thinking_msg = await update.message.reply_text("⏳", reply_markup=STOP_BUTTON)
-    cancel = _get_cancel_flag(user_id)
-    anim_task = asyncio.create_task(animate_thinking(thinking_msg, cancel, [
-        "⏳",
-        "⏳.",
-        "⏳..",
-        "⏳...",
-        "⏳..",
-        "⏳.",
-        "⏳ Думаю...",
-        "⏳ Думаю..",
-        "⏳ Думаю.",
-        "⏳ Думаю..",
-    ], repeat=2))
     start = asyncio.get_event_loop().time()
+    history_context = CHAT_HISTORY.format_prompt(user_id)
+    prompt = (
+        f"{SYSTEM_PROMPT}\n"
+        f"{history_context}"
+        f"{file_context}"
+        f"Отвечай развёрнуто и подробно. Если вопрос про факты, "
+        f"события, даты, технологии — давай полный ответ с деталями, "
+        f"примерами и пояснениями.\n"
+        f"ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\n"
+        f"User: {user_text}\nAssistant:"
+    )
     _get_cancel_flag(user_id).clear()
-
-    # Multi-model iterative loop for code gen / analysis
-    should_iterate = (is_code_request(user_text) or is_analysis) and (project or file_ctx or is_code_request(user_text))
-    if should_iterate:
-        sys_prompt = (
-            f"{file_context}\n\n"
-            f"User: {user_text}\n\n"
-            f"Если это просьба написать код — сгенерируй его. "
-            f"Если анализ/поиск ошибок — найди ВСЕ и исправь. "
-            f"Только код, без пояснений, без markdown."
-        )
-        ai_task = asyncio.create_task(
-            iterative_code_improvement(user_id=user_id, system_prompt=sys_prompt, max_rounds=3)
-        )
-    else:
-        history_context = CHAT_HISTORY.format_prompt(user_id)
-        prompt = (
-            f"{SYSTEM_PROMPT}\n"
-            f"{history_context}"
-            f"{file_context}"
-            f"Отвечай развёрнуто и подробно. Если вопрос про факты, "
-            f"события, даты, технологии — давай полный ответ с деталями, "
-            f"примерами и пояснениями.\n"
-            f"ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\n"
-            f"User: {user_text}\nAssistant:"
-        )
-        ai_task = asyncio.create_task(ask_ollama(prompt, temperature=0.3, max_tokens=1024 if is_analysis else 512))
+    ai_task = asyncio.create_task(ask_ollama(prompt, temperature=0.3, max_tokens=1024 if is_analysis else 512))
     _running_tasks[user_id] = ai_task
     try:
         answer = await ai_task
     except asyncio.CancelledError:
         _get_cancel_flag(user_id).clear()
-        anim_task.cancel()
         try:
             await thinking_msg.edit_text("⏹ Остановлено")
         except Exception:
@@ -2181,7 +1822,6 @@ async def handle_zerox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     finally:
         _running_tasks.pop(user_id, None)
-    anim_task.cancel()
     if answer == "TIMEOUT":
         answer = "⚠️ error - timedout"
     elif not answer:
@@ -2205,7 +1845,7 @@ async def handle_zerox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await animate_reply(thinking_msg, answer)
 
 async def handle_zeroxfix(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Fix errors in uploaded file/project using multi-model iterative loop."""
+    """Fix errors in uploaded file/project."""
     user_id = update.effective_user.id
     track_user(user_id, update.effective_user.username)
     TOKEN_MGR.daily_refill(user_id)
@@ -2219,45 +1859,41 @@ async def handle_zeroxfix(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Сначала загрузи файл или .zip проект.")
         return
 
-    thinking = await update.message.reply_text("🔧 Исправляю ошибки... (Генератор + Инспектор)", reply_markup=STOP_BUTTON)
-    result = None
+    thinking = await update.message.reply_text("🔧 Исправляю ошибки...", reply_markup=STOP_BUTTON)
     if project:
-        # Improve each file with iterative loop, then combine
-        improved = {}
-        for fpath, fcontent in list(project.items())[:15]:
-            if _get_cancel_flag(user_id).is_set():
+        lines = []
+        total_chars = 0
+        for path, content in list(project.items())[:10]:
+            block = f"=== {path} ===\n{content[:3000]}"
+            total_chars += len(block)
+            if total_chars > 15000:
+                block = block[:15000 - (total_chars - len(block))]
+            lines.append(block)
+            if total_chars >= 15000:
                 break
-            sys_prompt = (
-                f"File: {fpath}\n\n"
-                f"Isprav vse oshibki, bagi i uyazvimosti v etom fayle. "
-                f"Verni TOLKO ispravlenny kod, bez poyasneniy."
-            )
-            fixed = await iterative_code_improvement(
-                user_id=user_id,
-                system_prompt=sys_prompt,
-                initial_code=fcontent,
-                max_rounds=2,
-            )
-            improved[fpath] = fixed or fcontent
-        # Convert back to single string for parsing
-        result = "\n".join(f"### {p}\n{c}" for p, c in improved.items())
+        code_preview = "\n\n".join(lines)
+        prompt = (
+            f"Ты эксперт по code review. Дан проект из {len(project)} файлов (показаны первые).\n"
+            f"Найди ВСЕ ошибки, баги, уязвимости и ИСПРАВЬ их.\n"
+            f"Верни исправленный код в формате:\n"
+            f"### filename.ext\nисправленный код\n"
+            f"Для каждого исправленного файла укажи ### filename.ext\n\n"
+            f"Проект:\n```\n{code_preview}\n```\n"
+            f"Исправленный проект:"
+        )
     else:
         code_preview = (fc.get("content", "") or "")[:8000]
         fname = fc.get("name", "file")
-        sys_prompt = (
-            f"File: {fname}\n\n"
-            f"Isprav vse oshibki, bagi i uyazvimosti v etom fayle. "
-            f"Verni TOLKO ispravlenny kod, bez poyasneniy."
-        )
-        result = await iterative_code_improvement(
-            user_id=user_id,
-            system_prompt=sys_prompt,
-            initial_code=code_preview,
-            max_rounds=3,
+        prompt = (
+            f"Ты эксперт по code review. Найди ВСЕ ошибки в файле {fname} и ИСПРАВЬ их.\n"
+            f"Верни ПОЛНОСТЬЮ исправленный файл. Только код, без пояснений.\n\n"
+            f"Код:\n```\n{code_preview}\n```\n"
+            f"Исправленный код:"
         )
 
+    result = await ask_ollama(prompt, temperature=0.3, max_tokens=4096)
     if not result or result == "TIMEOUT" or (isinstance(result, str) and result.startswith("API_ERROR")):
-        await thinking.edit_text("⚠️ Ne udalos ispravit kod.")
+        await thinking.edit_text("⚠️ Не удалось исправить код.")
         return
 
     result = strip_code_fence(result)
@@ -3192,7 +2828,6 @@ def main():
         await app.bot.set_my_commands([
             BotCommand("start", "Запустить бота"),
             BotCommand("balance", "Показать баланс токенов"),
-            BotCommand("apikeys", "Проверить статус API ключей"),
             BotCommand("zerox", "Спросить у Zerox"),
             BotCommand("zeroxfix", "Исправить ошибки в загруженном проекте"),
             BotCommand("grant", "Выдать токены (только владелец)"),
@@ -3234,7 +2869,6 @@ def main():
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("balance", handle_balance))
-    app.add_handler(CommandHandler("apikeys", handle_apikeys))
     app.add_handler(CommandHandler("zerox", handle_zerox))
     app.add_handler(CommandHandler("zeroxfix", handle_zeroxfix))
     app.add_handler(CommandHandler("grant", handle_grant))
