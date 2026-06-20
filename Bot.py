@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 import httpx
-from telegram import Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ═══════════════════════════════════════════════
@@ -2329,12 +2329,17 @@ def main():
             BotCommand("call", "Позвать всех участников с ролями"),
         ])
 
-    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-
-    builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
-    if proxy:
-        builder = builder.proxy_url(proxy)
-    app = builder.build()
+    worker_url = os.environ.get("WORKER_URL")
+    if worker_url:
+        bot = Bot(token=TOKEN, base_url=f"{worker_url.rstrip('/')}/bot")
+        builder = ApplicationBuilder().bot(bot).post_init(post_init)
+        app = builder.build()
+    else:
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
+        if proxy:
+            builder = builder.proxy_url(proxy)
+        app = builder.build()
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("balance", handle_balance))
