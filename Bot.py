@@ -2340,8 +2340,7 @@ def main():
         ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ssl_ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         ssl_ctx.set_alpn_protocols(["http/1.1"])
-        transport = httpx.AsyncHTTPTransport(ssl_context=ssl_ctx)
-        custom_client = httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(120.0, connect=60.0))
+        custom_client = httpx.AsyncClient(verify=ssl_ctx, timeout=httpx.Timeout(120.0, connect=60.0))
         custom_request = HTTPXRequest(client=custom_client)
 
     builder = ApplicationBuilder().token(TOKEN).post_init(post_init).request(custom_request)
