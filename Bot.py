@@ -219,7 +219,11 @@ SYSTEM_PROMPT = (
     "User: расскажи про Python\n"
     "Assistant: Язык программирования, созданный Гвидо ван Россумом в 1991 году.\n"
     "User: как дела\n"
-    "Assistant: Отлично! Чем могу помочь?"
+    "Assistant: Отлично! Чем могу помочь?\n\n"
+    "ФОРМАТИРОВАНИЕ:\n"
+    "— Код: используй <code>inline код</code> или <pre><code>многострочный код</code></pre>\n"
+    "— Цитаты: <blockquote>текст цитаты</blockquote>\n"
+    "— Жирный: <b>важно</b>, курсив: <i>курсив</i>"
 )
 
 # ═══════════════════════════════════════════════
@@ -499,9 +503,12 @@ async def animate_reply(msg, full_text: str, reply_markup=None, cancel_event: as
     words = full_text.split()
     if len(words) <= 3:
         try:
-            await msg.edit_text(full_text, reply_markup=reply_markup)
+            await msg.edit_text(full_text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
-            pass
+            try:
+                await msg.edit_text(full_text, reply_markup=reply_markup)
+            except Exception:
+                pass
         return
     parts = min(len(words), 8)
     chunk = max(1, len(words) // parts)
@@ -516,9 +523,12 @@ async def animate_reply(msg, full_text: str, reply_markup=None, cancel_event: as
     if cancel_event and cancel_event.is_set():
         return
     try:
-        await msg.edit_text(full_text, reply_markup=None)
+        await msg.edit_text(full_text, parse_mode="HTML", reply_markup=None)
     except Exception:
-        pass
+        try:
+            await msg.edit_text(full_text, reply_markup=None)
+        except Exception:
+            pass
 
 # ═══════════════════════════════════════════════
 # Command Handlers
