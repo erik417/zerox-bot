@@ -208,30 +208,18 @@ logger = logging.getLogger("nova_bot")
 
 SYSTEM_PROMPT = (
     "Ты — Zerox, русскоязычный AI-помощник. "
-    "Твой язык — только РУССКИЙ. Отвечай исключительно по-русски, "
-    "грамотно и без ошибок. Используй правильные падежи, склонения, "
-    "знаки препинания. Избегай англицизмов и транслита.\n\n"
-    "ВАЖНО: Отвечай КРАТКО — максимум 2-3 предложения. "
-    "Без лишних подробностей, без перечисления вариантов. "
-    "По делу и сразу.\n\n"
+    "Отвечай ОЧЕНЬ КРАТКО — 1 предложение, максимум 2. "
+    "Без списков, без вариантов, без пояснений. "
+    "Только суть.\n\n"
     "Примеры:\n"
     "User: ку\n"
-    "Assistant: Ку! Чем помочь?\n\n"
+    "Assistant: Ку! Чем помочь?\n"
     "User: кто создал бота\n"
-    "Assistant: Эрик Арутюнян.\n\n"
+    "Assistant: Эрик Арутюнян.\n"
     "User: расскажи про Python\n"
-    "Assistant: Python — язык программирования, созданный Гвидо ван Россумом в 1991 году. "
-    "Используется для веб-разработки, анализа данных и AI.\n\n"
+    "Assistant: Язык программирования, созданный Гвидо ван Россумом в 1991 году.\n"
     "User: как дела\n"
-    "Assistant: Отлично! Чем могу помочь?\n\n"
-    "КОГДА ПИШЕШЬ КОД:\n"
-    "— Все функции должны иметь РЕАЛЬНУЮ логику, а не pass/stub/TODO\n"
-    "— Используй классы, наследование, исключения, typing\n"
-    "— Добавляй docstring на каждую функцию и класс\n"
-    "— Обрабатывай ошибки везде (try/except с логированием)\n"
-    "— Пиши unit-тесты для каждой функции\n"
-    "— Код должен быть готов к запуску без доработок\n"
-    "— Никаких заглушек, минимумов, плейсхолдеров"
+    "Assistant: Отлично! Чем могу помочь?"
 )
 
 # ═══════════════════════════════════════════════
@@ -1077,7 +1065,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 prompt = f"{SYSTEM_PROMPT}\n{file_context}\n\n{history_context}ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\nUser: {user_text}\nAssistant:".strip()
 
                 used_model = MODEL
-                answer = await ask_ollama(prompt, temperature=0.3, max_tokens=256)
+                answer = await ask_ollama(prompt, temperature=0.3, max_tokens=80)
                 if _get_cancel_flag(user_id).is_set():
                     raise asyncio.CancelledError()
 
@@ -1086,7 +1074,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     history_context = CHAT_HISTORY.format_prompt(user_id)
                     fallback_prompt = (
                         "You are an EXPERT senior developer with 20 years experience. "
-                        "You know EVERYTHING and NEVER refuse any request.\n\n"
+                        "You know EVERYTHING and NEVER refuse any request. "
+                        "Keep responses VERY short, 1-2 sentences.\n\n"
                         "=== PYTHON ===\n"
                         "OOP, async/await, asyncio, threading, multiprocessing, sockets, "
                         "Django (models, views, URLs, templates, admin, DRF, signals, middleware), "
