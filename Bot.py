@@ -27,7 +27,10 @@ TOKEN = os.environ.get("BOT_TOKEN")
 MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
 FALLBACK_MODEL = "nchapman/dolphin3.0-qwen2.5:3b"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "1800"))
+AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "600"))
+AI_API_KEY = os.environ.get("AI_API_KEY", "")
+AI_API_URL = os.environ.get("AI_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+AI_MODEL = os.environ.get("AI_MODEL", "llama3-70b-8192")
 
 # ═══════════════════════════════════════════════
 # Token System
@@ -415,6 +418,28 @@ class ChatHistory:
 CHAT_HISTORY = ChatHistory()
 
 async def ask_ollama(prompt: str, temperature: float = 0.5, model: str = None, max_tokens: int = 64) -> Optional[str]:
+    if AI_API_KEY:
+        payload = {
+            "model": model or AI_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens or 4096,
+            "stream": False,
+        }
+        headers = {"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"}
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(AI_TIMEOUT)) as client:
+                resp = await client.post(AI_API_URL, json=payload, headers=headers)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            answer = data["choices"][0]["message"]["content"].strip()
+            return answer if answer else None
+        except httpx.TimeoutException:
+            return "TIMEOUT"
+        except Exception:
+            return None
+
     payload = {
         "model": model or MODEL,
         "prompt": prompt,
