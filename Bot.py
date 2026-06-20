@@ -567,6 +567,9 @@ def is_code_request(text: str) -> bool:
         "write code", "write a function", "create a script",
         "сделай код", "создай скрипт", "implement",
         "code for", "function for", "script for",
+        "сделай", "напиши", "создай", "разработай",
+        "плагин", "plugin", "модуль", "module", "класс", "class",
+        "функцию", "функция", "function",
     ]
     return any(kw in tl for kw in code_words)
 
