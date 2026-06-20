@@ -1,0 +1,20 @@
+app = "zeroxai-bot"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  BOT_TOKEN = ""
+  OLLAMA_URL = ""
+
+[[services]]
+  internal_port = 8080
+  processes = ["app"]
+
+  [[services.ports]]
+    handlers = []
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls"]
+    port = 443
