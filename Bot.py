@@ -189,6 +189,21 @@ class TokenManager:
         self._save()
         return True
 
+    def daily_refill(self, user_id: int):
+        uid = str(user_id)
+        now = time.time()
+        mx = self._max_for(uid)
+        entry = self.data.get(uid)
+        if entry is None:
+            self.data[uid] = {"tokens": mx, "last_regen": now}
+            self._save()
+            return
+        last = entry.get("last_regen", 0)
+        if now - last > 86400:
+            entry["tokens"] = mx
+            entry["last_regen"] = now
+            self._save()
+
     def set_tokens(self, user_id: int, amount: int):
         uid = str(user_id)
         if uid not in self.data:
@@ -3607,13 +3622,6 @@ def main():
         if proxy:
             builder = builder.proxy_url(proxy)
         app = builder.build()
-
-    async def handle_error(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        import sys, traceback
-        sys.stderr.write(f"ERROR: {context.error}\n")
-        traceback.print_exception(type(context.error), context.error, context.error.__traceback__, file=sys.stderr)
-        sys.stderr.flush()
-    app.add_error_handler(handle_error)
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("server", handle_server))
