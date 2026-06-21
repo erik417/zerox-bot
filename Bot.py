@@ -3505,7 +3505,7 @@ def main():
 
     worker_url = os.environ.get("WORKER_URL")
     if worker_url:
-        request = HTTPXRequest(connect_timeout=60, read_timeout=120, media_write_timeout=120)
+        request = HTTPXRequest(connect_timeout=60, read_timeout=360, media_write_timeout=360)
         bot = Bot(token=TOKEN, base_url=f"{worker_url.rstrip('/')}/bot", request=request)
         builder = ApplicationBuilder().bot(bot).post_init(post_init)
         app = builder.build()
