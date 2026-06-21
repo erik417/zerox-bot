@@ -1428,6 +1428,24 @@ async def handle_successful_payment(update: Update, context: ContextTypes.DEFAUL
         parse_mode="HTML",
     )
 
+async def handle_stars_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("❌ Только для владельца")
+        return
+    try:
+        bal = await context.bot.get_my_star_balance()
+        txns = await context.bot.get_star_transactions(limit=5)
+        lines = [f"⭐ Баланс бота: <b>{bal}</b> Stars\n"]
+        if txns:
+            lines.append("Последние транзакции:")
+            for t in txns:
+                date = t.date.strftime("%d.%m %H:%M") if hasattr(t, 'date') else ""
+                amount = t.amount if hasattr(t, 'amount') else ""
+                lines.append(f"  {date} — {amount} ⭐")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
 async def handle_apikeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check Groq API key limits."""
     await update.message.reply_text("🔍 Проверяю API ключи...")
@@ -3704,6 +3722,7 @@ def main():
             BotCommand("server", "Подключиться к консоли Minecraft"),
 
             BotCommand("balance", "Показать баланс токенов"),
+            BotCommand("stars", "Баланс Stars (владелец)"),
             BotCommand("apikeys", "Проверить статус API ключей"),
             BotCommand("zerox", "Спросить у Zerox"),
             BotCommand("zeroxfix", "Исправить ошибки в загруженном проекте"),
@@ -3761,6 +3780,7 @@ def main():
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("server", handle_server))
     app.add_handler(CommandHandler("balance", handle_balance))
+    app.add_handler(CommandHandler("stars", handle_stars_balance))
     app.add_handler(CommandHandler("apikeys", handle_apikeys))
     app.add_handler(CommandHandler("zerox", handle_zerox))
     app.add_handler(CommandHandler("zeroxfix", handle_zeroxfix))
