@@ -1581,9 +1581,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await msg.edit_text("⬇️ Скачиваю голосовое...")
             file = await voice.get_file()
-            raw = io.BytesIO()
-            await file.download_to_memory(raw)
-            audio_bytes = raw.getvalue()
+            import urllib.request
+            dl_url = f"https://api.telegram.org/file/bot{TOKEN}/{file.file_path}"
+            with urllib.request.urlopen(dl_url, timeout=120) as resp:
+                audio_bytes = resp.read()
         except Exception as e:
             await msg.edit_text(f"❌ Ошибка загрузки: {e}")
             return
