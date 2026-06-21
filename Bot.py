@@ -3637,11 +3637,7 @@ def main():
             builder = builder.proxy_url(proxy)
         app = builder.build()
 
-    async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        import sys, traceback
-        sys.stderr.write(f"===PTB_ERROR===: {context.error}\n")
-        sys.stderr.flush()
-    app.add_error_handler(handle_error)
+    app.add_error_handler(lambda u, c: sys.stderr.write(f"===PTB_ERROR===: {c.error}\n") or sys.stderr.flush())
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("server", handle_server))
@@ -3698,16 +3694,34 @@ def main():
             sys.stderr.write(f"=== space_url={space_url} ===\n")
             sys.stderr.write(f"=== webhook_secret={'SET' if webhook_secret else 'NOT SET'} ===\n")
             sys.stderr.flush()
+            import aiohttp.web as aiohttp_web
+            async def webhook_handler(request):
+                try:
+                    body = await request.read()
+                    data = json.loads(body)
+                    update = Update.de_json(data, app.bot)
+                    if update:
+                        await app.update_queue.put(update)
+                    return aiohttp_web.json_response({"ok": True})
+                except Exception as e:
+                    sys.stderr.write(f"===WEBHOOK ERROR: {e}===\n")
+                    traceback.print_exc(file=sys.stderr)
+                    sys.stderr.flush()
+                    return aiohttp_web.json_response({"ok": False, "error": str(e)}, status=500)
+            aio_app = aiohttp_web.Application()
+            aio_app.router.add_post(f"/{TOKEN}", webhook_handler)
+            async def run_aiohttp():
+                runner = aiohttp_web.AppRunner(aio_app)
+                await runner.setup()
+                site = aiohttp_web.TCPSite(runner, "0.0.0.0", 7860)
+                await site.start()
+                sys.stderr.write("===AIOHTTP WEBHOOK STARTED===\n")
+                sys.stderr.flush()
+                await asyncio.Event().wait()
             try:
-                app.run_webhook(
-                    listen="0.0.0.0",
-                    port=7860,
-                    url_path=TOKEN,
-                    webhook_url=f"{space_url}/{TOKEN}",
-                    secret_token=webhook_secret,
-                )
+                app.run_polling()
             except Exception:
-                sys.stderr.write("===RUN WEBHOOK EXCEPTION===\n")
+                sys.stderr.write("===RUN POLLING EXCEPTION===\n")
                 traceback.print_exc(file=sys.stderr)
                 sys.stderr.flush()
                 raise
