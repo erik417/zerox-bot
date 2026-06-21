@@ -1580,32 +1580,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         voice = update.message.voice
         try:
             await msg.edit_text("⬇️ Скачиваю голосовое...")
-            import urllib.request
             file_info = await voice.get_file()
-            file_path = file_info.file_path
-            if not file_path:
-                await msg.edit_text("❌ Не удалось получить путь к файлу")
-                return
-            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            worker = os.environ.get("WORKER_URL", "").rstrip("/")
-            urls = []
-            if worker:
-                urls.append(f"{worker}/file/bot{TOKEN}/{file_path}")
-            urls.append(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}")
-            audio_bytes = None
-            for dl_url in urls:
-                try:
-                    req = urllib.request.Request(dl_url, headers={"User-Agent": ua})
-                    with urllib.request.urlopen(req, timeout=120) as resp:
-                        audio_bytes = resp.read()
-                    break
-                except Exception:
-                    continue
-            if audio_bytes is None:
-                await msg.edit_text("❌ Не удалось скачать файл. Используй `/voice текст`")
-                return
+            raw = io.BytesIO()
+            # PTB download_to_memory now has 120s timeout (HTTPXRequest configured above)
+            await file_info.download_to_memory(raw)
+            audio_bytes = raw.getvalue()
         except Exception as e:
-            await msg.edit_text(f"❌ Ошибка загрузки: {e}")
+            await msg.edit_text(f"❌ Ошибка загрузки: {e}. Используй `/voice текст`")
             return
 
         if not HF_TOKEN:
