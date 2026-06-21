@@ -14,6 +14,7 @@ from typing import Optional
 
 import httpx
 from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from telegram.request import HTTPXRequest
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ═══════════════════════════════════════════════
@@ -3503,7 +3504,8 @@ def main():
 
     worker_url = os.environ.get("WORKER_URL")
     if worker_url:
-        bot = Bot(token=TOKEN, base_url=f"{worker_url.rstrip('/')}/bot")
+        request = HTTPXRequest(connect_timeout=60, read_timeout=120, media_write_timeout=120)
+        bot = Bot(token=TOKEN, base_url=f"{worker_url.rstrip('/')}/bot", request=request)
         builder = ApplicationBuilder().bot(bot).post_init(post_init)
         app = builder.build()
     else:
