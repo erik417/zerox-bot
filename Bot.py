@@ -42,7 +42,7 @@ CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "gpt-oss-120b")
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
 NVIDIA_API_URL = os.environ.get("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+
 
 # ═══════════════════════════════════════════════
 # Token System
@@ -1025,24 +1025,6 @@ async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data={'target': bal, 'counter': 0, 'message': msg, 'uid': uid},
     )
 
-async def handle_voice_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    track_user(update.effective_user.id, update.effective_user.username)
-    args = context.args
-    if args:
-        text = " ".join(args)
-        context.user_data['voice_text'] = text
-        msg = await update.message.reply_text(f"🔍 Ищу: _{text}_", parse_mode="Markdown")
-        await do_voice_search(msg, text)
-    else:
-        await update.message.reply_text(
-            "🎤 <b>Голосовой поиск музыки</b>\n\n"
-            "Просто отправь голосовое сообщение — бот распознает речь "
-            "(армянский, русский, английский) и найдёт музыку на YouTube.\n\n"
-            "Или введи текст вручную:\n"
-            "<code>/voice название песни</code>",
-            parse_mode="HTML",
-        )
-
 async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_user.id, update.effective_user.username)
     uid = update.effective_user.id
@@ -1539,174 +1521,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-# ═══════════════════════════════════════════════
-# Voice → Music Search
-# ═══════════════════════════════════════════════
 
-async def search_youtube(query: str, music_only: bool = False) -> Optional[str]:
-    try:
-        domain = "music.youtube.com" if music_only else "www.youtube.com"
-        async with httpx.AsyncClient(timeout=httpx.Timeout(8)) as c:
-            r = await asyncio.wait_for(c.get(
-                f"https://{domain}/results?search_query={quote(query[:150])}",
-                headers={"User-Agent": "Mozilla/5.0"},
-            ), timeout=10)
-        if r.status_code != 200:
-            return None
-        ids = set(re.findall(r'"videoId":"([^"]{11})"', r.text))
-        titles = re.findall(r'"title":{"runs":\[{"text":"([^"]+)"}', r.text)
-        if ids:
-            vid = list(ids)[0]
-            title = titles[0] if titles else "Трек"
-            return f"🎵 {title}\nhttps://youtu.be/{vid}"
-    except:
-        return None
-
-async def search_soundcloud(query: str) -> Optional[str]:
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(8)) as c:
-            r = await asyncio.wait_for(c.get(
-                f"https://soundcloud.com/search?q={quote(query[:100])}",
-                headers={"User-Agent": "Mozilla/5.0"},
-            ), timeout=10)
-        if r.status_code != 200:
-            return None
-        # find first track/playlist link
-        for m in re.finditer(r'href="(/(?:[^"/][^"]*/)?[^"]{3,})"[^>]*>([^<]{3,})<', r.text):
-            href = m.group(1)
-            title = m.group(2)
-            if not any(x in href for x in ('/search/', '/people/', '/signin', '/upload')):
-                return f"🎧 {title.strip()}\nhttps://soundcloud.com{href}"
-    except:
-        pass
-    return None
-
-async def do_voice_search(msg, text: str):
-    text_short = text if len(text) <= 200 else text[:197] + "..."
-    parts = [f"🎤 Распознано: _{text_short}_"]
-
-    # YouTube
-    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на YouTube...")
-    yt = await search_youtube(text)
-    if yt:
-        parts.append(f"\n\n📺 **YouTube:**\n{yt}")
-    else:
-        parts.append(f"\n\n📺 **YouTube:** ничего не найдено")
-
-    # YouTube Music
-    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на YouTube Music...")
-    ytm = await search_youtube(text, music_only=True)
-    if ytm and ytm != yt:
-        parts.append(f"\n\n🎶 **YouTube Music:**\n{ytm}")
-
-    # SoundCloud
-    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на SoundCloud...")
-    sc = await search_soundcloud(text)
-    if sc:
-        parts.append(f"\n\n🎧 **SoundCloud:**\n{sc}")
-
-    # Direct music platform links
-    short_q = quote(text[:150])
-    links = [
-        f"Spotify: https://open.spotify.com/search/{short_q}",
-        f"Яндекс Музыка: https://music.yandex.ru/search?text={short_q}",
-    ]
-    parts.append(f"\n\n🔗 **Искать на:**\n" + "\n".join(links))
-
-    result = "".join(parts)
-    try:
-        await msg.edit_text(result, parse_mode="Markdown", disable_web_page_preview=False)
-    except Exception:
-        try:
-            await msg.edit_text(result, disable_web_page_preview=False)
-        except Exception:
-            pass
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    track_user(update.effective_user.id, update.effective_user.username)
-    msg = await update.message.reply_text("🎤 Распознаю речь...")
-    try:
-        voice = update.message.voice
-        try:
-            await msg.edit_text("⬇️ Скачиваю голосовое...")
-            file_info = await voice.get_file()
-            raw = io.BytesIO()
-            # PTB download_to_memory now has 120s timeout (HTTPXRequest configured above)
-            await file_info.download_to_memory(raw)
-            audio_bytes = raw.getvalue()
-        except Exception as e:
-            await msg.edit_text(f"❌ Ошибка загрузки: {e}. Используй `/voice текст`")
-            return
-
-        if not HF_TOKEN:
-            await msg.edit_text("❌ HF_TOKEN не настроен в Secrets Space")
-            return
-
-        await msg.edit_text("🎤 Распознаю речь через Whisper...")
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(180)) as c:
-                resp = await c.post(
-                    "https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo",
-                    data=audio_bytes,
-                    headers={
-                        "Authorization": f"Bearer {HF_TOKEN}",
-                        "Content-Type": "application/octet-stream",
-                    },
-                )
-        except (httpx.TimeoutException, asyncio.TimeoutError):
-            await msg.edit_text("❌ Таймаут при распознавании (модель долго загружается). Попробуй ещё раз через минуту")
-            return
-        except Exception as e:
-            await msg.edit_text(f"❌ Ошибка HTTP: {e}")
-            return
-
-        if resp.status_code == 503:
-            await msg.edit_text("⏳ Модель загружается, попробуй через минуту")
-            return
-        if resp.status_code != 200:
-            await msg.edit_text(f"❌ Ошибка STT: {resp.status_code}\n{resp.text[:200]}")
-            return
-        result = resp.json()
-        text = result.get("text", "").strip()
-        if not text:
-            await msg.edit_text("❌ Не удалось распознать речь")
-            return
-
-        context.user_data['voice_text'] = text
-        context.user_data['voice_msg_id'] = msg.message_id
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✏️ Редактировать", callback_data="voice_edit"),
-             InlineKeyboardButton("🔍 Найти музыку", callback_data="voice_search")]
-        ])
-        await msg.edit_text(
-            f"📝 Распознано: _{text}_",
-            parse_mode="Markdown",
-            reply_markup=kb,
-        )
-    except Exception as e:
-        await msg.edit_text(f"❌ Ошибка: {e}")
-
-async def handle_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = update.effective_user.id
-    text = context.user_data.get('voice_text', '')
-    if not text:
-        await query.edit_message_text("❌ Текст не найден, отправь голосовое заново")
-        return
-    if query.data == "voice_search":
-        await query.edit_message_text(f"🔍 Ищу: _{text}_", parse_mode="Markdown")
-        await do_voice_search(query.message, text)
-    elif query.data == "voice_edit":
-        context.user_data['voice_edit'] = True
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔍 Найти как есть", callback_data="voice_search")]
-        ])
-        await query.edit_message_text(
-            f"✏️ Отправь исправленный текст\n\nТекущий: _{text}_",
-            parse_mode="Markdown",
-            reply_markup=kb,
-        )
 
 # ═══════════════════════════════════════════════
 # Message Handler
@@ -1722,14 +1537,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(user_id, update.effective_user.username)
 
     if is_banned(user_id):
-        return
-
-    # Voice edit mode: user sent corrected text
-    if context.user_data.pop('voice_edit', False):
-        text = user_text
-        context.user_data['voice_text'] = text
-        msg = await update.message.reply_text(f"🔍 Ищу: _{text}_", parse_mode="Markdown")
-        await do_voice_search(msg, text)
         return
 
     # Group chat: ignore messages without @bot_username, unless replying to bot
@@ -3522,7 +3329,7 @@ def main():
         await app.bot.set_my_commands([
             BotCommand("start", "Запустить бота"),
             BotCommand("server", "Подключиться к консоли Minecraft"),
-            BotCommand("voice", "Голосовой поиск музыки"),
+
             BotCommand("balance", "Показать баланс токенов"),
             BotCommand("apikeys", "Проверить статус API ключей"),
             BotCommand("zerox", "Спросить у Zerox"),
@@ -3571,7 +3378,6 @@ def main():
         app = builder.build()
 
     app.add_handler(CommandHandler("start", handle_start))
-    app.add_handler(CommandHandler("voice", handle_voice_cmd))
     app.add_handler(CommandHandler("server", handle_server))
     app.add_handler(CommandHandler("balance", handle_balance))
     app.add_handler(CommandHandler("apikeys", handle_apikeys))
@@ -3604,8 +3410,6 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_code_callback, pattern="^code_"))
     app.add_handler(CallbackQueryHandler(handle_stop_callback, pattern="^stop_gen$"))
     app.add_handler(CallbackQueryHandler(handle_resign_callback, pattern="^resign_"))
-    app.add_handler(CallbackQueryHandler(handle_voice_callback, pattern="^voice_"))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.TEXT & filters.UpdateType.EDITED_MESSAGE, handle_edited_message))
