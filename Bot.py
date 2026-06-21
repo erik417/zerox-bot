@@ -3694,30 +3694,6 @@ def main():
             sys.stderr.write(f"=== space_url={space_url} ===\n")
             sys.stderr.write(f"=== webhook_secret={'SET' if webhook_secret else 'NOT SET'} ===\n")
             sys.stderr.flush()
-            import aiohttp.web as aiohttp_web
-            async def webhook_handler(request):
-                try:
-                    body = await request.read()
-                    data = json.loads(body)
-                    update = Update.de_json(data, app.bot)
-                    if update:
-                        await app.update_queue.put(update)
-                    return aiohttp_web.json_response({"ok": True})
-                except Exception as e:
-                    sys.stderr.write(f"===WEBHOOK ERROR: {e}===\n")
-                    traceback.print_exc(file=sys.stderr)
-                    sys.stderr.flush()
-                    return aiohttp_web.json_response({"ok": False, "error": str(e)}, status=500)
-            aio_app = aiohttp_web.Application()
-            aio_app.router.add_post(f"/{TOKEN}", webhook_handler)
-            async def run_aiohttp():
-                runner = aiohttp_web.AppRunner(aio_app)
-                await runner.setup()
-                site = aiohttp_web.TCPSite(runner, "0.0.0.0", 7860)
-                await site.start()
-                sys.stderr.write("===AIOHTTP WEBHOOK STARTED===\n")
-                sys.stderr.flush()
-                await asyncio.Event().wait()
             try:
                 app.run_polling()
             except Exception:
