@@ -26,9 +26,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHan
 OWNER_USERNAME = "Er1kos_designer"
 OWNER_ID = 6734685656
 
-# Payment (Telegram Stars / Payments API)
-# Получить: BotFather → /mybots → bot → Payments → Connect Stripe/Sberbank → скопировать токен
-PAYMENT_PROVIDER_TOKEN = os.environ.get("PAYMENT_PROVIDER_TOKEN", "")
+# Payment (Telegram Stars)
+# Никакого банка не нужно — Stars встроены в Telegram
 PREMIUM_FILE = "premium_users.json"
 STARS_PRICES = {
     "small":  (5,   "5 ⭐ — 50 токенов"),
@@ -1162,7 +1161,6 @@ async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         title="Пополнение Zerox Bot",
         description=pack["desc"],
         payload=f"grant_{pack_key}_{uid}_{int(time.time())}",
-        provider_token="",
         currency="XTR",
         prices=prices,
         need_name=False,
