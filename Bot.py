@@ -3637,7 +3637,10 @@ def main():
             builder = builder.proxy_url(proxy)
         app = builder.build()
 
-    app.add_error_handler(lambda u, c: sys.stderr.write(f"===PTB_ERROR===: {c.error}\n") or sys.stderr.flush())
+    async def handle_ptb_error(u, c):
+        sys.stderr.write(f"===PTB_ERROR===: {c.error}\n")
+        sys.stderr.flush()
+    app.add_error_handler(handle_ptb_error)
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("server", handle_server))
@@ -3701,6 +3704,7 @@ def main():
         await app.initialize()
         if app.post_init:
             await app.post_init(app)
+        await app.bot.delete_webhook()
         await app.updater.start_polling()
         await app.start()
         sys.stderr.write("===BOT STARTED (polling + healthz)===\n")
