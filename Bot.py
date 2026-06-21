@@ -13,9 +13,9 @@ from datetime import timedelta
 from typing import Optional
 
 import httpx
-from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, LabeledPrice
 from telegram.request import HTTPXRequest
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes
 
 # ═══════════════════════════════════════════════
 # Configuration
@@ -25,6 +25,17 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHan
 # Prefer environment variable BOT_TOKEN.
 OWNER_USERNAME = "Er1kos_designer"
 OWNER_ID = 6734685656
+
+# Payment (Telegram Stars / Payments API)
+# Получить: BotFather → /mybots → bot → Payments → Connect Stripe/Sberbank → скопировать токен
+PAYMENT_PROVIDER_TOKEN = os.environ.get("PAYMENT_PROVIDER_TOKEN", "")
+PREMIUM_FILE = "premium_users.json"
+STARS_PRICES = {
+    "small":  (5,   "5 ⭐ — 50 токенов"),
+    "medium": (10,  "10 ⭐ — 150 токенов"),
+    "large":  (25,  "25 ⭐ — 500 токенов + премиум на 30 дней"),
+    "xl":     (50,  "50 ⭐ — 1500 токенов + премиум навсегда"),
+}
 
 TOKEN = os.environ.get("BOT_TOKEN")
 MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
@@ -50,12 +61,81 @@ NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
 TOKENS_PER_DAY = 20
 TOKENS_FILE = "tokens.json"
 MAX_TOKENS = 35
+MAX_TOKENS_PREMIUM = 500
+PREMIUM_REGEN_INTERVAL = 300  # 5 min per token for premium
 TOKEN_REGEN_INTERVAL = 1200  # seconds per 1 token (~12h to full: 35*1200=42000s=11.67h)
+
+# ═══════════════════════════════════════════════
+# Premium Manager
+# ═══════════════════════════════════════════════
+
+class PremiumManager:
+    def __init__(self):
+        self.data: dict = {}
+        self._load()
+
+    def _load(self):
+        try:
+            with open(PREMIUM_FILE, encoding="utf-8") as f:
+                self.data = json.load(f)
+        except Exception:
+            self.data = {}
+
+    def _save(self):
+        with open(PREMIUM_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+
+    def is_premium(self, user_id: int) -> bool:
+        uid = str(user_id)
+        entry = self.data.get(uid)
+        if not entry:
+            return False
+        expires = entry.get("expires", 0)
+        if expires == -1:  # навсегда
+            return True
+        if time.time() > expires:
+            self.data.pop(uid, None)
+            self._save()
+            return False
+        return True
+
+    def grant(self, user_id: int, days: int = 30):
+        uid = str(user_id)
+        now = time.time()
+        entry = self.data.get(uid, {})
+        old_expires = entry.get("expires", 0) if entry.get("expires", 0) != -1 else now
+        new_expire = old_expires + days * 86400
+        self.data[uid] = {"expires": new_expire, "level": "premium"}
+        self._save()
+
+    def grant_forever(self, user_id: int):
+        self.data[str(user_id)] = {"expires": -1, "level": "premium"}
+        self._save()
+
+    def get_max_tokens(self, user_id: int) -> int:
+        return MAX_TOKENS_PREMIUM if self.is_premium(user_id) else MAX_TOKENS
+
+    def get_regen_interval(self, user_id: int) -> int:
+        return PREMIUM_REGEN_INTERVAL if self.is_premium(user_id) else TOKEN_REGEN_INTERVAL
+
+PREMIUM_MGR = PremiumManager()
 
 class TokenManager:
     def __init__(self):
         self.data: dict = {}
         self._load()
+
+    def _max_for(self, uid: str) -> int:
+        try:
+            return PREMIUM_MGR.get_max_tokens(int(uid))
+        except:
+            return MAX_TOKENS
+
+    def _regen_interval_for(self, uid: str) -> int:
+        try:
+            return PREMIUM_MGR.get_regen_interval(int(uid))
+        except:
+            return TOKEN_REGEN_INTERVAL
 
     def _load(self):
         try:
@@ -69,28 +149,29 @@ class TokenManager:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
 
     def _regen(self, user_id: int):
-        """Regenerate tokens based on elapsed time. Never exceeds MAX_TOKENS."""
         uid = str(user_id)
         now = time.time()
+        mx = self._max_for(uid)
+        interval = self._regen_interval_for(uid)
         entry = self.data.get(uid)
         if entry is None:
-            self.data[uid] = {"tokens": MAX_TOKENS, "last_regen": now}
+            self.data[uid] = {"tokens": mx, "last_regen": now}
             self._save()
             return
         tokens = entry.get("tokens", 0)
-        if tokens > MAX_TOKENS:
-            entry["tokens"] = MAX_TOKENS
+        if tokens > mx:
+            entry["tokens"] = mx
             entry["last_regen"] = now
             self._save()
             return
-        if tokens == MAX_TOKENS:
+        if tokens >= mx:
             entry["last_regen"] = now
             return
         last = entry.get("last_regen", now)
         elapsed = now - last
-        gained = int(elapsed / TOKEN_REGEN_INTERVAL)
+        gained = int(elapsed / interval)
         if gained > 0:
-            tokens = min(MAX_TOKENS, tokens + gained)
+            tokens = min(mx, tokens + gained)
             entry["tokens"] = tokens
             entry["last_regen"] = now
             self._save()
@@ -99,42 +180,12 @@ class TokenManager:
         self._regen(user_id)
         return self.data.get(str(user_id), {}).get("tokens", 0)
 
-    def daily_refill(self, user_id: int):
-        # deprecated — regen handles it, kept for compatibility
-        self.get_balance(user_id)
-
     def spend(self, user_id: int, cost: int = 1) -> bool:
         uid = str(user_id)
         self._regen(user_id)
         bal = self.data.get(uid, {}).get("tokens", 0)
         if bal < cost:
             return False
-        self.data[uid]["tokens"] = bal - cost
-        self._save()
-        return True
-
-    def set_tokens(self, user_id: int, amount: int):
-        uid = str(user_id)
-        if uid not in self.data:
-            self.data[uid] = {}
-        self.data[uid]["tokens"] = max(0, min(MAX_TOKENS, amount))
-        self.data[uid]["last_regen"] = time.time()
-        self._save()
-
-    def add_tokens(self, user_id: int, amount: int):
-        uid = str(user_id)
-        cur = self.get_balance(user_id)
-        self.data[uid]["tokens"] = min(MAX_TOKENS, cur + amount)
-        self.data[uid]["last_regen"] = time.time()
-        self._save()
-
-    def spend(self, user_id: int, cost: int = 1) -> bool:
-        uid = str(user_id)
-        bal = self.data.get(uid, {}).get("tokens", 0)
-        if bal < cost:
-            return False
-        if uid not in self.data:
-            self.data[uid] = {}
         self.data[uid]["tokens"] = bal - cost
         self._save()
         return True
@@ -144,14 +195,15 @@ class TokenManager:
         if uid not in self.data:
             self.data[uid] = {}
         self.data[uid]["tokens"] = max(0, amount)
+        self.data[uid]["last_regen"] = time.time()
         self._save()
 
     def add_tokens(self, user_id: int, amount: int):
         uid = str(user_id)
-        cur = self.data.get(uid, {}).get("tokens", 0)
-        if uid not in self.data:
-            self.data[uid] = {}
+        cur = self.get_balance(user_id)
         self.data[uid]["tokens"] = cur + amount
+        self.data[uid]["last_regen"] = time.time()
+        self._save()
         self._save()
 
 TOKEN_MGR = TokenManager()
@@ -1061,6 +1113,97 @@ async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "✅" in result:
         SERVER_CONNECTIONS[chat_id] = {"host": host, "port": port, "rcon": rcon}
     await msg.edit_text(result)
+
+# ═══════════════════════════════════════════════
+# Payment / Premium Commands
+# ═══════════════════════════════════════════════
+
+TOKEN_PACKS = {
+    "50":   {"stars": 5,   "tokens": 50,   "desc": "50 токенов (5 ⭐)"},
+    "150":  {"stars": 10,  "tokens": 150,  "desc": "150 токенов (10 ⭐)"},
+    "premium_30d": {"stars": 25, "tokens": 500, "premium_days": 30, "desc": "500 токенов + Премиум 30 дней (25 ⭐)"},
+    "premium_forever": {"stars": 50, "tokens": 1500, "premium_forever": True, "desc": "1500 токенов + Премиум навсегда (50 ⭐)"},
+}
+
+async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("5 ⭐ — 50 токенов", callback_data="pay_50")],
+        [InlineKeyboardButton("10 ⭐ — 150 токенов", callback_data="pay_150")],
+        [InlineKeyboardButton("25 ⭐ — 500 токенов + Премиум 30д", callback_data="pay_premium_30d")],
+        [InlineKeyboardButton("50 ⭐ — 1500 токенов + Премиум навсегда", callback_data="pay_premium_forever")],
+    ]
+    await update.message.reply_text(
+        "💰 <b>Премиум-магазин</b>\n\n"
+        "Пополните баланс токенов или получите премиум:\n"
+        "• Премиум: лимит токенов <b>500</b> (вместо 35)\n"
+        "• Премиум: реген 1 токен / 5 мин (вместо 20 мин)\n"
+        "• Оплата через Telegram Stars\n\n"
+        "Выберите пакет:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
+
+async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # e.g. "pay_50"
+    uid = update.effective_user.id
+    pack_key = data.replace("pay_", "")
+    pack = TOKEN_PACKS.get(pack_key)
+    if not pack:
+        await query.edit_message_text("❌ Пакет не найден")
+        return
+
+    stars = pack["stars"]
+    prices = [LabeledPrice(label=pack["desc"], amount=stars)]  # Stars = 1 unit per star
+
+    await context.bot.send_invoice(
+        chat_id=update.effective_chat.id,
+        title="Пополнение Zerox Bot",
+        description=pack["desc"],
+        payload=f"grant_{pack_key}_{uid}_{int(time.time())}",
+        provider_token="",
+        currency="XTR",
+        prices=prices,
+        need_name=False,
+        need_phone=False,
+        need_email=False,
+        need_shipping_address=False,
+        is_flexible=False,
+    )
+
+async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.pre_checkout_query
+    if query.invoice_payload.startswith("grant_"):
+        await query.answer(ok=True)
+    else:
+        await query.answer(ok=False, error_message="❌ Неверный payload")
+
+async def handle_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    payload = update.message.successful_payment.invoice_payload
+    # payload = "grant_{pack_key}_{uid}_{timestamp}"
+    parts = payload.split("_")
+    if len(parts) < 3:
+        return
+    pack_key = parts[1]
+    pack = TOKEN_PACKS.get(pack_key)
+    if not pack:
+        await update.message.reply_text("❌ Ошибка: пакет не найден")
+        return
+
+    tokens = pack.get("tokens", 0)
+    token_mgr.add_tokens(user_id, tokens)
+
+    msg = f"✅ <b>Оплата получена!</b>\n+{tokens} токенов\n"
+    if pack.get("premium_days"):
+        PREMIUM_MGR.grant(user_id, pack["premium_days"])
+        msg += "🎖 <b>Премиум на 30 дней</b> активирован!\n"
+    if pack.get("premium_forever"):
+        PREMIUM_MGR.grant_forever(user_id)
+        msg += "🏆 <b>Премиум навсегда</b> активирован!\n"
+
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 async def handle_apikeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check Groq API key limits."""
@@ -3356,7 +3499,11 @@ def main():
             BotCommand("resign", "Самовольное снятие полномочий"),
             BotCommand("whoassigned", "Кто назначил роли пользователю"),
             BotCommand("call", "Позвать всех участников с ролями"),
+            BotCommand("premium", "Премиум-магазин (токены + Stars)"),
+            BotCommand("donate", "Поддержать бота Stars"),
         ])
+        if not PREMIUM_MGR.is_premium(OWNER_ID):
+            PREMIUM_MGR.grant_forever(OWNER_ID)
 
     worker_url = os.environ.get("WORKER_URL")
     if worker_url:
@@ -3394,6 +3541,11 @@ def main():
     app.add_handler(CommandHandler("whoassigned", handle_whoassigned))
     app.add_handler(CommandHandler("call", handle_call))
     app.add_handler(CommandHandler("resign", handle_resign))
+    app.add_handler(CommandHandler("premium", handle_premium))
+    app.add_handler(CommandHandler("donate", handle_premium))
+    app.add_handler(CallbackQueryHandler(handle_pay_callback, pattern="^pay_"))
+    app.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     app.add_handler(CommandHandler("ban", handle_ban))
     app.add_handler(CommandHandler("kick", handle_kick))
     app.add_handler(CommandHandler("mute", handle_mute))
