@@ -840,15 +840,15 @@ _api_keys = [k.strip() for k in AI_API_KEY.split(",") if k.strip()] if AI_API_KE
 _api_key_idx = 0
 _http_client = None  # lazy init in ask_ollama
 
-async def ask_ollama(prompt: str, temperature: float = 0.5, model: str = None, max_tokens: int = 64) -> Optional[str]:
+async def ask_ollama(prompt: str, temperature: float = 0.5, model: str = None, max_tokens: int = 64, skip_nvidia: bool = False) -> Optional[str]:
     global _api_key_idx, _http_client
     if _http_client is None:
         _http_client = httpx.AsyncClient(timeout=httpx.Timeout(AI_TIMEOUT))
     t0 = time.time()
     err = None
 
-    # Try NVIDIA first
-    if NVIDIA_API_KEY:
+    # Try NVIDIA first (skip for premium who should use Groq)
+    if NVIDIA_API_KEY and not skip_nvidia:
         t1 = time.time()
         print(f"[ask_ollama] Trying NVIDIA...")
         try:
@@ -2281,8 +2281,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history_context = CHAT_HISTORY.format_prompt(user_id)
                 prompt = f"{SYSTEM_PROMPT}\n{file_context}\n\n{history_context}ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\nUser: {user_text}\nAssistant:".strip()
 
-                used_model = BASIC_MODEL if not PREMIUM_MGR.is_premium(user_id) else AI_MODEL
-                answer = await ask_ollama(prompt, temperature=0.3, max_tokens=chat_max_tokens, model=used_model)
+                is_prem = PREMIUM_MGR.is_premium(user_id)
+                used_model = AI_MODEL if is_prem else BASIC_MODEL
+                answer = await ask_ollama(prompt, temperature=0.3, max_tokens=chat_max_tokens, model=used_model, skip_nvidia=is_prem)
                 if _get_cancel_flag(user_id).is_set():
                     raise asyncio.CancelledError()
 
