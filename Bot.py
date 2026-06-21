@@ -1577,21 +1577,37 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🎤 Распознаю речь...")
     try:
         voice = update.message.voice
-        file = await voice.get_file()
-        raw = io.BytesIO()
-        await file.download_to_memory(raw)
-        raw.seek(0)
-        audio_bytes = raw.read()
+        try:
+            file = await voice.get_file()
+            raw = io.BytesIO()
+            await asyncio.wait_for(file.download_to_memory(raw), timeout=30)
+            raw.seek(0)
+            audio_bytes = raw.read()
+        except asyncio.TimeoutError:
+            await msg.edit_text("❌ Таймаут при загрузке голосового (файл слишком большой?)")
+            return
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120)) as c:
-            resp = await c.post(
-                "https://api-inference.huggingface.co/models/openai/whisper-large-v3",
-                data=audio_bytes,
-                headers={
-                    "Authorization": f"Bearer {HF_TOKEN}",
-                    "Content-Type": "application/octet-stream",
-                },
-            )
+        if not HF_TOKEN:
+            await msg.edit_text("❌ HF_TOKEN не настроен в Secrets Space")
+            return
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120)) as c:
+                resp = await c.post(
+                    "https://api-inference.huggingface.co/models/openai/whisper-large-v3",
+                    data=audio_bytes,
+                    headers={
+                        "Authorization": f"Bearer {HF_TOKEN}",
+                        "Content-Type": "application/octet-stream",
+                    },
+                )
+        except (httpx.TimeoutException, asyncio.TimeoutError):
+            await msg.edit_text("❌ Таймаут при распознавании (модель долго загружается). Попробуй ещё раз через минуту")
+            return
+        except Exception as e:
+            await msg.edit_text(f"❌ Ошибка HTTP: {e}")
+            return
+
         if resp.status_code == 503:
             await msg.edit_text("⏳ Модель загружается, попробуй через минуту")
             return
