@@ -1583,7 +1583,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         raw.seek(0)
         audio_bytes = raw.read()
 
-        async with httpx.AsyncClient(timeout=30) as c:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120)) as c:
             resp = await c.post(
                 "https://api-inference.huggingface.co/models/openai/whisper-large-v3",
                 data=audio_bytes,
