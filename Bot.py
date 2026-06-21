@@ -11,7 +11,6 @@ import random
 import time
 from datetime import timedelta
 from typing import Optional
-from urllib.parse import quote
 
 import httpx
 from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
