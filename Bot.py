@@ -1176,10 +1176,10 @@ CRYPTO_PRICES = {
 }
 
 STARS_PRICES = {
-    "50": 50,
-    "150": 100,
-    "plus_30d": 300,
-    "premium": 600,
+    "50": 5,
+    "150": 15,
+    "plus_30d": 100,
+    "premium": 300,
 }
 
 def _load_crypto_pending():
@@ -1261,10 +1261,10 @@ async def _show_stars_packs(query, user):
         f"Выбери пакет:"
     )
     keyboard = [
-        [InlineKeyboardButton("🔹 50 токенов — 50 ⭐", callback_data="stars_pay_50")],
-        [InlineKeyboardButton("🔹 150 токенов — 100 ⭐", callback_data="stars_pay_150")],
-        [InlineKeyboardButton("⭐ Plus 30д — 300 ⭐", callback_data="stars_pay_plus_30d")],
-        [InlineKeyboardButton("👑 Премиум 30д — 600 ⭐", callback_data="stars_pay_premium")],
+        [InlineKeyboardButton("🔹 50 токенов — 5 ⭐", callback_data="stars_pay_50")],
+        [InlineKeyboardButton("🔹 150 токенов — 15 ⭐", callback_data="stars_pay_150")],
+        [InlineKeyboardButton("⭐ Plus 30д — 100 ⭐", callback_data="stars_pay_plus_30d")],
+        [InlineKeyboardButton("👑 Премиум 30д — 300 ⭐", callback_data="stars_pay_premium")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back_to_shop")],
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
