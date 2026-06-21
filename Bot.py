@@ -1084,6 +1084,23 @@ async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bal = TOKEN_MGR.get_balance(update.effective_user.id)
     await update.message.reply_text(f"💎 Твой баланс: {bal} токенов")
 
+async def handle_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_owner = user_id == OWNER_ID
+    is_prem = PREMIUM_MGR.is_premium(user_id) or is_owner
+    tier = "👑 Владелец" if is_owner else ("⭐ Премиум" if is_prem else "🔹 Обычный")
+    model = AI_MODEL if is_prem else BASIC_MODEL
+    provider = "NVIDIA → " if not is_prem else ""
+    provider += "Groq"
+    provider_note = f" (`{NVIDIA_MODEL}` → Groq `{model}`)" if not is_prem else f" (`{model}`)"
+    await update.message.reply_text(
+        f"📡 <b>Модель</b>\n\n"
+        f"👤 Твой статус: {tier}\n"
+        f"🤖 Провайдер: {provider}{provider_note}\n"
+        f"⚡ Rate limit: {'30 RPM (5 ключей)' if is_prem else '40 RPM (NVIDIA)'}",
+        parse_mode="HTML"
+    )
+
 async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_user.id, update.effective_user.username)
     uid = update.effective_user.id
@@ -3657,6 +3674,7 @@ def main():
 
             BotCommand("balance", "Показать баланс токенов"),
             BotCommand("stars", "Баланс Stars (владелец)"),
+            BotCommand("model", "Какая модель отвечает"),
             BotCommand("apikeys", "Проверить статус API ключей"),
             BotCommand("zerox", "Спросить у Zerox"),
             BotCommand("zeroxfix", "Исправить ошибки в загруженном проекте"),
@@ -3711,6 +3729,7 @@ def main():
     app.add_error_handler(handle_ptb_error)
 
     app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(CommandHandler("model", handle_model))
     app.add_handler(CommandHandler("server", handle_server))
     app.add_handler(CommandHandler("balance", handle_balance))
     app.add_handler(CommandHandler("stars", handle_stars_balance))
