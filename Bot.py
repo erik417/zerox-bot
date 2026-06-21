@@ -1548,7 +1548,7 @@ async def search_youtube(query: str, music_only: bool = False) -> Optional[str]:
         domain = "music.youtube.com" if music_only else "www.youtube.com"
         async with httpx.AsyncClient(timeout=httpx.Timeout(8)) as c:
             r = await asyncio.wait_for(c.get(
-                f"https://{domain}/results?search_query={quote(query)}",
+                f"https://{domain}/results?search_query={quote(query[:150])}",
                 headers={"User-Agent": "Mozilla/5.0"},
             ), timeout=10)
         if r.status_code != 200:
@@ -1564,16 +1564,18 @@ async def search_youtube(query: str, music_only: bool = False) -> Optional[str]:
 
 async def search_soundcloud(query: str) -> Optional[str]:
     try:
-        async with httpx.AsyncClient(timeout=8) as c:
-            r = await c.get(
-                f"https://soundcloud.com/search?q={quote(query)}",
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8)) as c:
+            r = await asyncio.wait_for(c.get(
+                f"https://soundcloud.com/search?q={quote(query[:100])}",
                 headers={"User-Agent": "Mozilla/5.0"},
-            )
+            ), timeout=10)
         if r.status_code != 200:
             return None
-        urls = re.findall(r'<li><a href="(/[^"]+)"[^>]*>([^<]+)</a>', r.text)
-        for href, title in urls:
-            if "/search/" not in href and "/people/" not in href:
+        # find first track/playlist link
+        for m in re.finditer(r'href="(/(?:[^"/][^"]*/)?[^"]{3,})"[^>]*>([^<]{3,})<', r.text):
+            href = m.group(1)
+            title = m.group(2)
+            if not any(x in href for x in ('/search/', '/people/', '/signin', '/upload')):
                 return f"🎧 {title.strip()}\nhttps://soundcloud.com{href}"
     except:
         pass
@@ -1604,9 +1606,10 @@ async def do_voice_search(msg, text: str):
         parts.append(f"\n\n🎧 **SoundCloud:**\n{sc}")
 
     # Direct music platform links
+    short_q = quote(text[:150])
     links = [
-        f"Spotify: https://open.spotify.com/search/{quote(text)}",
-        f"Яндекс Музыка: https://music.yandex.ru/search?text={quote(text)}",
+        f"Spotify: https://open.spotify.com/search/{short_q}",
+        f"Яндекс Музыка: https://music.yandex.ru/search?text={short_q}",
     ]
     parts.append(f"\n\n🔗 **Искать на:**\n" + "\n".join(links))
 
