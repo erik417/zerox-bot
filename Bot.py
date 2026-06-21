@@ -17,7 +17,7 @@ from typing import Optional
 import httpx
 from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, LabeledPrice
 from telegram.request import HTTPXRequest
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes, PreCheckoutQueryHandler
 
 # ═══════════════════════════════════════════════
 # Configuration
@@ -1394,6 +1394,10 @@ async def handle_stars_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=kb,
         parse_mode="HTML",
     )
+
+async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.pre_checkout_query
+    await query.answer(ok=True)
 
 async def handle_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payment = update.message.successful_payment
@@ -3782,6 +3786,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_method_choice, pattern="^(method_crypto|method_stars|back_to_shop)$"))
     app.add_handler(CallbackQueryHandler(handle_crypto_pay, pattern="^crypto_pay_"))
     app.add_handler(CallbackQueryHandler(handle_stars_pay, pattern="^stars_pay_"))
+    app.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     app.add_handler(CommandHandler("ban", handle_ban))
     app.add_handler(CommandHandler("kick", handle_kick))
