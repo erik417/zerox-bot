@@ -62,7 +62,7 @@ NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
 TOKENS_PER_DAY = 20
 TOKENS_FILE = "tokens.json"
 MAX_TOKENS = 35
-MAX_TOKENS_PREMIUM = 500
+MAX_TOKENS_PREMIUM = 200
 PREMIUM_REGEN_INTERVAL = 300  # 5 min per token for premium
 TOKEN_REGEN_INTERVAL = 1200  # seconds per 1 token (~12h to full: 35*1200=42000s=11.67h)
 
@@ -1144,17 +1144,15 @@ CRYPTOBOT_API = "https://pay.crypt.bot/api"
 CRYPTO_PENDING_FILE = "crypto_pending.json"
 
 TOKEN_PACKS = {
-    "50":            (50,   "50 токенов"),
-    "150":           (150,  "150 токенов"),
-    "premium_30d":   (500,  "500 токенов + Премиум 30 дней"),
-    "premium_forever": (1500, "1500 токенов + Премиум навсегда"),
+    "50":          (50,   "50 токенов"),
+    "150":         (150,  "150 токенов"),
+    "premium_30d": (500,  "500 токенов + Премиум 30 дней"),
 }
 
 CRYPTO_PRICES = {
     "50": "1.5",
     "150": "3",
     "premium_30d": "7",
-    "premium_forever": "15",
 }
 
 def _load_crypto_pending():
@@ -1188,12 +1186,11 @@ async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔹 50 токенов — $1.50", callback_data="pay_50")],
         [InlineKeyboardButton("🔹 150 токенов — $3", callback_data="pay_150")],
         [InlineKeyboardButton("⭐ 500 токенов + Премиум 30д — $7", callback_data="pay_premium_30d")],
-        [InlineKeyboardButton("🏆 1500 токенов + Премиум навсегда — $15", callback_data="pay_premium_forever")],
     ]
     text = (
         f"💰 <b>Премиум-магазин</b>\n\n"
         f"{status} | Баланс: <b>{bal}</b> токенов\n\n"
-        f"Премиум: лимит <b>500</b> токенов (вместо 35)\n"
+        f"Премиум: лимит <b>200</b> токенов (вместо 35)\n"
         f"Премиум: реген 1 токен / 5 мин (вместо 20 мин)\n\n"
     )
     if CRYPTOBOT_TOKEN:
@@ -3679,9 +3676,6 @@ def main():
                                     if entry["pack_key"] == "premium_30d":
                                         PREMIUM_MGR.grant(entry["user_id"], 30)
                                         msg += "\n🎖 Премиум 30 дней"
-                                    elif entry["pack_key"] == "premium_forever":
-                                        PREMIUM_MGR.grant_forever(entry["user_id"])
-                                        msg += "\n🏆 Премиум навсегда"
                                     try:
                                         await app.bot.send_message(entry["user_id"], msg, parse_mode="HTML")
                                     except Exception:
