@@ -2521,8 +2521,8 @@ async def handle_grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             user = await context.bot.get_chat(f"@{target}")
             uid = user.id
-        TOKEN_MGR.set_tokens(uid, amount)
-        await update.message.reply_text(f"✅ Выдано {amount} токенов @{target}")
+        TOKEN_MGR.add_tokens(uid, amount)
+        await update.message.reply_text(f"✅ Добавлено {amount} токенов @{target}")
     except Exception:
         await update.message.reply_text(
             f"❌ Пользователь @{target} не найден. "
