@@ -13,9 +13,9 @@ from datetime import timedelta
 from typing import Optional
 
 import httpx
-from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, LabeledPrice
 from telegram.request import HTTPXRequest
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes
 
 # ═══════════════════════════════════════════════
 # Configuration
@@ -1114,31 +1114,18 @@ async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.edit_text(result)
 
 # ═══════════════════════════════════════════════
-# Payment / Premium Commands (manual confirmation)
+# Payment / Premium Commands (Telegram Stars)
 # ═══════════════════════════════════════════════
 
-PAYMENT_PHONE = os.environ.get("PAYMENT_PHONE", "+374XXXXXXXX")
-PAYMENT_CURRENCY = "AMD"
-PENDING_PAYMENTS_FILE = "pending_payments.json"
+# Stars = Telegram's built-in currency, no bank needed.
+# Owner withdraws Stars → Fragment → Toncoin → AMD manually.
 
-# (tokens, amd, desc)
 TOKEN_PACKS = {
-    "50":            (50,   500,  "50 токенов"),
-    "150":           (150,  1000, "150 токенов"),
-    "premium_30d":   (500,  2500, "500 токенов + Премиум 30 дней"),
-    "premium_forever": (1500, 5000, "1500 токенов + Премиум навсегда"),
+    "50":            {"stars": 1,   "tokens": 50,   "desc": "50 токенов"},
+    "150":           {"stars": 2,   "tokens": 150,  "desc": "150 токенов"},
+    "premium_30d":   {"stars": 5,   "tokens": 500,  "premium_days": 30,  "desc": "500 токенов + Премиум 30 дней"},
+    "premium_forever": {"stars": 10, "tokens": 1500, "premium_forever": True, "desc": "1500 токенов + Премиум навсегда"},
 }
-
-def _load_pending():
-    try:
-        with open(PENDING_PAYMENTS_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
-
-def _save_pending(data):
-    with open(PENDING_PAYMENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1148,19 +1135,18 @@ async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     bal = token_mgr.get_balance(user.id)
     keyboard = [
-        [InlineKeyboardButton(f"🔹 50 токенов — 500 AMD", callback_data="pay_50")],
-        [InlineKeyboardButton(f"🔹 150 токенов — 1000 AMD", callback_data="pay_150")],
-        [InlineKeyboardButton(f"⭐ 500 токенов + Премиум 30д — 2500 AMD", callback_data="pay_premium_30d")],
-        [InlineKeyboardButton(f"🏆 1500 токенов + Премиум навсегда — 5000 AMD", callback_data="pay_premium_forever")],
+        [InlineKeyboardButton("1 ⭐ — 50 токенов", callback_data="pay_50")],
+        [InlineKeyboardButton("2 ⭐ — 150 токенов", callback_data="pay_150")],
+        [InlineKeyboardButton("5 ⭐ — 500 токенов + Премиум 30д", callback_data="pay_premium_30d")],
+        [InlineKeyboardButton("10 ⭐ — 1500 токенов + Премиум навсегда", callback_data="pay_premium_forever")],
     ]
     await update.message.reply_text(
         f"💰 <b>Премиум-магазин</b>\n\n"
         f"{status}\n"
-        f"Текущий баланс: <b>{bal}</b> токенов\n\n"
-        f"Премиум: лимит <b>500</b> токенов (вместо 35)\n"
-        f"Премиум: реген 1 токен / 5 мин (вместо 20 мин)\n\n"
-        f"Оплата переводом на <b>{PAYMENT_PHONE}</b> ({PAYMENT_CURRENCY})\n"
-        f"После перевода нажми «Я оплатил» — владелец подтвердит вручную.",
+        f"Баланс токенов: <b>{bal}</b>\n\n"
+        f"⭐ Премиум: лимит <b>500</b> токенов (вместо 35)\n"
+        f"⭐ Премиум: реген 1 токен / 5 мин (вместо 20 мин)\n\n"
+        f"Оплата Telegram Stars — владелец выводит через Fragment.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML",
     )
@@ -1179,153 +1165,44 @@ async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ Пакет не найден")
         return
 
-    tokens, amd, desc = pack
-    context.user_data["pending_pack"] = pack_key
+    from telegram import LabeledPrice
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Я оплатил", callback_data=f"confirm_pay_{user.id}")],
-        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_pay")],
-    ])
-    await query.edit_message_text(
-        f"💳 <b>{desc}</b>\n\n"
-        f"Сумма: <b>{amd} {PAYMENT_CURRENCY}</b>\n"
-        f"Получатель: <code>{PAYMENT_PHONE}</code>\n\n"
-        f"1. Переведи {amd} AMD на номер выше\n"
-        f"2. Нажми «✅ Я оплатил»\n"
-        f"3. Ожидай подтверждения от владельца",
-        reply_markup=keyboard,
-        parse_mode="HTML",
+    prices = [LabeledPrice(label=pack["desc"], amount=pack["stars"])]
+    await context.bot.send_invoice(
+        chat_id=update.effective_chat.id,
+        title="Пополнение Zerox Bot",
+        description=pack["desc"],
+        payload=f"grant_{pack_key}_{user.id}_{int(time.time())}",
+        currency="XTR",
+        prices=prices,
     )
 
-async def handle_confirm_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = update.effective_user
-    pack_key = context.user_data.get("pending_pack")
-    if not pack_key:
-        await query.edit_message_text("❌ Сессия истекла. Начни заново: /premium")
-        return
+async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.pre_checkout_query.answer(ok=True)
 
+async def handle_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    payload = update.message.successful_payment.invoice_payload
+    parts = payload.split("_")
+    if len(parts) < 3:
+        return
+    pack_key = parts[1]
     pack = TOKEN_PACKS.get(pack_key)
     if not pack:
-        await query.edit_message_text("❌ Пакет не найден")
+        await update.message.reply_text("❌ Ошибка: пакет не найден")
         return
 
-    tokens, amd, desc = pack
-
-    pending = _load_pending()
-    pid = f"{user.id}_{int(time.time())}"
-    pending.append({
-        "id": pid,
-        "user_id": user.id,
-        "username": user.username or user.first_name,
-        "pack_key": pack_key,
-        "tokens": tokens,
-        "amd": amd,
-        "desc": desc,
-        "ts": time.time(),
-    })
-    _save_pending(pending)
-
-    await query.edit_message_text(
-        f"⏳ Заявка отправлена владельцу. Ожидай подтверждения.\n\n"
-        f"Пакет: {desc}\n"
-        f"Сумма: {amd} {PAYMENT_CURRENCY}\n"
-        f"Номер: {PAYMENT_PHONE}",
-        parse_mode="HTML",
-    )
-
-    owner_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Подтвердить", callback_data=f"owner_ok_{pid}")],
-        [InlineKeyboardButton("❌ Отклонить", callback_data=f"owner_no_{pid}")],
-    ])
-    await context.bot.send_message(
-        OWNER_ID,
-        f"🔔 <b>Новая заявка на оплату</b>\n\n"
-        f"Пользователь: @{user.username or user.first_name} (ID: {user.id})\n"
-        f"Пакет: {desc}\n"
-        f"Сумма: {amd} {PAYMENT_CURRENCY}\n"
-        f"Номер: {PAYMENT_PHONE}",
-        reply_markup=owner_kb,
-        parse_mode="HTML",
-    )
-
-async def handle_cancel_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data.pop("pending_pack", None)
-    await query.edit_message_text("❌ Отменено.")
-
-async def handle_owner_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if update.effective_user.id != OWNER_ID:
-        await query.answer("❌ Только владелец", show_alert=True)
-        return
-
-    pid = query.data.replace("owner_ok_", "")
-    pending = _load_pending()
-    entry = next((p for p in pending if p["id"] == pid), None)
-    if not entry:
-        await query.edit_message_text("❌ Заявка уже обработана или не найдена")
-        return
-
-    user_id = entry["user_id"]
-    tokens = entry["tokens"]
-    pack_key = entry["pack_key"]
-
+    tokens = pack["tokens"]
     token_mgr.add_tokens(user_id, tokens)
-    msg = f"✅ <b>Оплата подтверждена!</b>\n+{tokens} токенов"
-    if pack_key == "premium_30d":
-        PREMIUM_MGR.grant(user_id, 30)
+    msg = f"✅ <b>Оплата получена!</b>\n+{tokens} токенов"
+    if pack.get("premium_days"):
+        PREMIUM_MGR.grant(user_id, pack["premium_days"])
         msg += "\n🎖 Премиум на 30 дней активирован!"
-    elif pack_key == "premium_forever":
+    if pack.get("premium_forever"):
         PREMIUM_MGR.grant_forever(user_id)
         msg += "\n🏆 Премиум навсегда активирован!"
 
-    try:
-        await context.bot.send_message(user_id, msg, parse_mode="HTML")
-    except Exception:
-        pass
-
-    remaining = [p for p in pending if p["id"] != pid]
-    _save_pending(remaining)
-
-    await query.edit_message_text(
-        f"✅ Подтверждено: {entry['desc']}\n"
-        f"Пользователь: @{entry['username']} (ID: {user_id})\n"
-        f"Выдано: {tokens} токенов"
-    )
-
-async def handle_owner_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if update.effective_user.id != OWNER_ID:
-        await query.answer("❌ Только владелец", show_alert=True)
-        return
-
-    pid = query.data.replace("owner_no_", "")
-    pending = _load_pending()
-    entry = next((p for p in pending if p["id"] == pid), None)
-    if not entry:
-        await query.edit_message_text("❌ Заявка уже обработана или не найдена")
-        return
-
-    remaining = [p for p in pending if p["id"] != pid]
-    _save_pending(remaining)
-
-    try:
-        await context.bot.send_message(
-            entry["user_id"],
-            "❌ Владелец <b>отклонил</b> заявку. Свяжись с @Er1kos_designer если есть вопросы.",
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
-
-    await query.edit_message_text(
-        f"❌ Отклонено: {entry['desc']}\nПользователь: @{entry['username']}"
-    )
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 async def handle_apikeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check Groq API key limits."""
@@ -3621,8 +3498,8 @@ def main():
             BotCommand("resign", "Самовольное снятие полномочий"),
             BotCommand("whoassigned", "Кто назначил роли пользователю"),
             BotCommand("call", "Позвать всех участников с ролями"),
-            BotCommand("premium", "Премиум-магазин (токены + премиум)"),
-            BotCommand("donate", "Поддержать автора"),
+            BotCommand("premium", "Премиум-магазин (токены + Stars)"),
+            BotCommand("donate", "Поддержать через Stars"),
         ])
         if not PREMIUM_MGR.is_premium(OWNER_ID):
             PREMIUM_MGR.grant_forever(OWNER_ID)
@@ -3666,10 +3543,8 @@ def main():
     app.add_handler(CommandHandler("premium", handle_premium))
     app.add_handler(CommandHandler("donate", handle_premium))
     app.add_handler(CallbackQueryHandler(handle_pay_callback, pattern="^pay_"))
-    app.add_handler(CallbackQueryHandler(handle_confirm_paid, pattern="^confirm_pay_"))
-    app.add_handler(CallbackQueryHandler(handle_cancel_pay, pattern="^cancel_pay$"))
-    app.add_handler(CallbackQueryHandler(handle_owner_confirm, pattern="^owner_ok_"))
-    app.add_handler(CallbackQueryHandler(handle_owner_reject, pattern="^owner_no_"))
+    app.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     app.add_handler(CommandHandler("ban", handle_ban))
     app.add_handler(CommandHandler("kick", handle_kick))
     app.add_handler(CommandHandler("mute", handle_mute))
