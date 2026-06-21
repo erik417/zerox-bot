@@ -178,11 +178,6 @@ class TokenManager:
             self._save()
             return
         tokens = entry.get("tokens", 0)
-        if tokens > mx:
-            entry["tokens"] = mx
-            entry["last_regen"] = now
-            self._save()
-            return
         if tokens >= mx:
             entry["last_regen"] = now
             return
