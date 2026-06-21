@@ -2094,14 +2094,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # Daily refill + check tokens
         TOKEN_MGR.daily_refill(user_id)
-        if TOKEN_MGR.get_balance(user_id) < 1:
-            await update.message.reply_text(
-                "❌ Недостаточно токенов.",
-            )
-            return
-
         context.user_data["processing"] = True
         try:
             if is_creator_question(user_text):
@@ -2263,13 +2256,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ], repeat=2))
             start = asyncio.get_event_loop().time()
 
-            tokens_spent = 0
-
             is_analysis = has_code_context and any(w in user_text.lower() for w in ["ошибк", "баг", "bug", "review", "анализ", "провер", "проблем", "качеств", "исправ", "code review", "найди", "найти", "покажи"])
             chat_max_tokens = 1024 if is_analysis else 80
 
             async def _chat_flow():
-                nonlocal tokens_spent
                 _get_cancel_flag(user_id).clear()
 
                 # Multi-model iterative improvement for code analysis
@@ -2402,16 +2392,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elapsed = asyncio.get_event_loop().time() - start
                 answer = f"{answer}\n\n⏱ {elapsed:.1f}s"
 
-                cost = calc_cost(len(answer))
-                if TOKEN_MGR.get_balance(user_id) >= cost:
-                    TOKEN_MGR.spend(user_id, cost)
-                    tokens_spent = cost
-                else:
-                    remaining = TOKEN_MGR.get_balance(user_id)
-                    if remaining > 0:
-                        TOKEN_MGR.spend(user_id, remaining)
-                        tokens_spent = remaining
-
                 await animate_reply(thinking_msg, answer, reply_markup=STOP_BUTTON, cancel_event=_get_cancel_flag(user_id))
                 print(f"Model: {used_model} ({elapsed:.1f}s)")
                 _get_cancel_flag(user_id).clear()
@@ -2421,8 +2401,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await ai_task
             except asyncio.CancelledError:
-                if tokens_spent:
-                    TOKEN_MGR.set_tokens(user_id, TOKEN_MGR.get_balance(user_id) + tokens_spent)
                 _get_cancel_flag(user_id).clear()
                 try:
                     await thinking_msg.edit_text("⏹ Остановлено")
