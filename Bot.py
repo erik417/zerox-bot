@@ -1078,37 +1078,10 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Просто напиши что-нибудь!",
     )
 
-async def animate_balance_callback(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    data = job.data
-    current = data['counter'] + 1
-    target = data['target']
-    bar_len = 15
-    filled_bars = int(current / max(target, 1) * bar_len)
-    bar = '█' * filled_bars + '░' * (bar_len - filled_bars)
-    if current >= target:
-        await data['message'].edit_text(f"💎 Твой баланс: {target} токенов")
-        job.schedule_removal()
-    else:
-        data['counter'] = current
-        try:
-            await data['message'].edit_text(f"💎 Пополняю баланс...\n{bar} {current}/{target}")
-        except:
-            pass
-
 async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_user.id, update.effective_user.username)
-    uid = update.effective_user.id
-    bal = TOKEN_MGR.get_balance(uid)
-    if bal <= 3:
-        await update.message.reply_text(f"💎 Твой баланс: {bal} токенов")
-        return
-    msg = await update.message.reply_text("💎 Пополняю баланс...")
-    context.job_queue.run_repeating(
-        animate_balance_callback,
-        interval=0.3, first=0.3,
-        data={'target': bal, 'counter': 0, 'message': msg, 'uid': uid},
-    )
+    bal = TOKEN_MGR.get_balance(update.effective_user.id)
+    await update.message.reply_text(f"💎 Твой баланс: {bal} токенов")
 
 async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_user.id, update.effective_user.username)
@@ -2521,8 +2494,8 @@ async def handle_grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             user = await context.bot.get_chat(f"@{target}")
             uid = user.id
-        TOKEN_MGR.add_tokens(uid, amount)
-        await update.message.reply_text(f"✅ Добавлено {amount} токенов @{target}")
+        TOKEN_MGR.set_tokens(uid, amount)
+        await update.message.reply_text(f"✅ Выдано {amount} токенов @{target}")
     except Exception:
         await update.message.reply_text(
             f"❌ Пользователь @{target} не найден. "
