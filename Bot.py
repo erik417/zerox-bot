@@ -3560,6 +3560,7 @@ def main():
         logger.error("BOT_TOKEN environment variable not set!")
         return
 
+    worker_url = os.environ.get("WORKER_URL")
     import sys
     sys.stderr.write(f"===== DIAG: AI_API_KEY={'SET' if AI_API_KEY else 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_MODEL={AI_MODEL} =====\n")
@@ -3605,7 +3606,6 @@ def main():
         if not PREMIUM_MGR.is_premium(OWNER_ID):
             PREMIUM_MGR.grant_forever(OWNER_ID)
 
-    worker_url = os.environ.get("WORKER_URL")
     if worker_url:
         request = HTTPXRequest(connect_timeout=15, read_timeout=30, media_write_timeout=30)
         bot = Bot(
