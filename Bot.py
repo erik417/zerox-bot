@@ -401,9 +401,9 @@ def _get_lock(user_id: int) -> asyncio.Lock:
         _user_locks[user_id] = asyncio.Lock()
     return _user_locks[user_id]
 
-logging.basicConfig(level=logging.CRITICAL)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s", force=True)
 for lib in ["httpx", "telegram", "httpcore", "urllib3"]:
-    logging.getLogger(lib).setLevel(logging.CRITICAL)
+    logging.getLogger(lib).setLevel(logging.WARNING)
 
 logger = logging.getLogger("nova_bot")
 
