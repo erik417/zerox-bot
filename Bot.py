@@ -62,9 +62,11 @@ NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
 TOKENS_PER_DAY = 20
 TOKENS_FILE = "tokens.json"
 MAX_TOKENS = 35
+MAX_TOKENS_PLUS = 100
 MAX_TOKENS_PREMIUM = 200
-PREMIUM_REGEN_INTERVAL = 300  # 5 min per token for premium
 TOKEN_REGEN_INTERVAL = 1200  # seconds per 1 token (~12h to full: 35*1200=42000s=11.67h)
+PLUS_REGEN_INTERVAL = 600   # 10 min per token for plus
+PREMIUM_REGEN_INTERVAL = 300  # 5 min per token for premium
 
 # ═══════════════════════════════════════════════
 # Premium Manager
@@ -86,38 +88,51 @@ class PremiumManager:
         with open(PREMIUM_FILE, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
 
-    def is_premium(self, user_id: int) -> bool:
-        uid = str(user_id)
-        entry = self.data.get(uid)
+    def _valid_entry(self, entry) -> bool:
         if not entry:
             return False
         expires = entry.get("expires", 0)
-        if expires == -1:  # навсегда
+        if expires == -1:
             return True
         if time.time() > expires:
-            self.data.pop(uid, None)
-            self._save()
             return False
         return True
 
-    def grant(self, user_id: int, days: int = 30):
+    def get_level(self, user_id: int) -> str:
+        uid = str(user_id)
+        entry = self.data.get(uid)
+        if not self._valid_entry(entry):
+            return ""
+        return entry.get("level", "")
+
+    def grant(self, user_id: int, days: int = 30, level: str = "premium"):
         uid = str(user_id)
         now = time.time()
         entry = self.data.get(uid, {})
         old_expires = entry.get("expires", 0) if entry.get("expires", 0) != -1 else now
         new_expire = old_expires + days * 86400
-        self.data[uid] = {"expires": new_expire, "level": "premium"}
+        self.data[uid] = {"expires": new_expire, "level": level}
         self._save()
 
-    def grant_forever(self, user_id: int):
-        self.data[str(user_id)] = {"expires": -1, "level": "premium"}
+    def grant_forever(self, user_id: int, level: str = "premium"):
+        self.data[str(user_id)] = {"expires": -1, "level": level}
         self._save()
 
     def get_max_tokens(self, user_id: int) -> int:
-        return MAX_TOKENS_PREMIUM if self.is_premium(user_id) else MAX_TOKENS
+        level = self.get_level(user_id)
+        if not level:
+            return MAX_TOKENS
+        if level == "plus":
+            return MAX_TOKENS_PLUS
+        return MAX_TOKENS_PREMIUM
 
     def get_regen_interval(self, user_id: int) -> int:
-        return PREMIUM_REGEN_INTERVAL if self.is_premium(user_id) else TOKEN_REGEN_INTERVAL
+        level = self.get_level(user_id)
+        if not level:
+            return TOKEN_REGEN_INTERVAL
+        if level == "plus":
+            return PLUS_REGEN_INTERVAL
+        return PREMIUM_REGEN_INTERVAL
 
 PREMIUM_MGR = PremiumManager()
 
@@ -1144,15 +1159,17 @@ CRYPTOBOT_API = "https://pay.crypt.bot/api"
 CRYPTO_PENDING_FILE = "crypto_pending.json"
 
 TOKEN_PACKS = {
-    "50":          (50,   "50 токенов"),
-    "150":         (150,  "150 токенов"),
-    "premium_30d": (500,  "500 токенов + Премиум 30 дней"),
+    "50":        (50,   "50 токенов"),
+    "150":       (150,  "150 токенов"),
+    "plus_30d":  (200,  "Plus 30д — лимит 100, реген 10 мин"),
+    "premium":   (500,  "Премиум 30д — лимит 200, реген 5 мин"),
 }
 
 CRYPTO_PRICES = {
-    "50": "1.5",
-    "150": "3",
-    "premium_30d": "7",
+    "50": "0.5",
+    "150": "1",
+    "plus_30d": "3",
+    "premium": "6",
 }
 
 def _load_crypto_pending():
@@ -1182,19 +1199,26 @@ async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⭐ Премиум активен" if PREMIUM_MGR.is_premium(user.id) else "🔹 Обычный пользователь"
     )
     bal = TOKEN_MGR.get_balance(user.id)
+    level = PREMIUM_MGR.get_level(user.id)
+    if not level:
+        tier_info = "🔹 Обычный — лимит 35, реген 20 мин"
+    elif level == "plus":
+        tier_info = "⭐ Plus — лимит 100, реген 10 мин"
+    else:
+        tier_info = "👑 Премиум — лимит 200, реген 5 мин"
     keyboard = [
-        [InlineKeyboardButton("🔹 50 токенов — $1.50", callback_data="pay_50")],
-        [InlineKeyboardButton("🔹 150 токенов — $3", callback_data="pay_150")],
-        [InlineKeyboardButton("⭐ 500 токенов + Премиум 30д — $7", callback_data="pay_premium_30d")],
+        [InlineKeyboardButton("🔹 50 токенов — $0.50", callback_data="pay_50")],
+        [InlineKeyboardButton("🔹 150 токенов — $1", callback_data="pay_150")],
+        [InlineKeyboardButton("⭐ Plus 30д (200 токенов) — $3", callback_data="pay_plus_30d")],
+        [InlineKeyboardButton("👑 Премиум 30д (500 токенов) — $6", callback_data="pay_premium")],
     ]
     text = (
-        f"💰 <b>Премиум-магазин</b>\n\n"
+        f"💰 <b>Магазин</b>\n\n"
         f"{status} | Баланс: <b>{bal}</b> токенов\n\n"
-        f"Премиум: лимит <b>200</b> токенов (вместо 35)\n"
-        f"Премиум: реген 1 токен / 5 мин (вместо 20 мин)\n\n"
+        f"{tier_info}\n\n"
     )
     if CRYPTOBOT_TOKEN:
-        text += f"Оплата через <b>CryptoBot</b> (USDT) — автоматически"
+        text += f"💳 Оплата через <b>CryptoBot</b> (USDT) — автоматически"
     else:
         text += "❌ Оплата временно недоступна"
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -3673,9 +3697,12 @@ def main():
                                 if entry:
                                     TOKEN_MGR.add_tokens(entry["user_id"], entry["tokens"])
                                     msg = f"✅ Оплата получена! +{entry['tokens']} токенов"
-                                    if entry["pack_key"] == "premium_30d":
-                                        PREMIUM_MGR.grant(entry["user_id"], 30)
-                                        msg += "\n🎖 Премиум 30 дней"
+                                    if entry["pack_key"] == "plus_30d":
+                                        PREMIUM_MGR.grant(entry["user_id"], 30, level="plus")
+                                        msg += "\n⭐ Plus 30 дней"
+                                    elif entry["pack_key"] == "premium":
+                                        PREMIUM_MGR.grant(entry["user_id"], 30, level="premium")
+                                        msg += "\n👑 Премиум 30 дней"
                                     try:
                                         await app.bot.send_message(entry["user_id"], msg, parse_mode="HTML")
                                     except Exception:
