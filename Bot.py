@@ -1581,21 +1581,31 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await msg.edit_text("⬇️ Скачиваю голосовое...")
             import urllib.request
-            import json as _json
-            worker = os.environ.get("WORKER_URL", "https://api.telegram.org").rstrip("/")
-            getfile_url = f"{worker}/bot{TOKEN}/getFile"
-            req = urllib.request.Request(getfile_url, data=_json.dumps({"file_id": voice.file_id}).encode(), headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                file_path = _json.loads(resp.read())["result"]["file_path"]
-            dl_url = f"{worker}/file/bot{TOKEN}/{file_path}"
-            with urllib.request.urlopen(dl_url, timeout=120) as resp:
-                audio_bytes = resp.read()
+            file_info = await voice.get_file()
+            file_path = file_info.file_path
+            if not file_path:
+                await msg.edit_text("❌ Не удалось получить путь к файлу")
+                return
+            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            worker = os.environ.get("WORKER_URL", "").rstrip("/")
+            urls = []
+            if worker:
+                urls.append(f"{worker}/file/bot{TOKEN}/{file_path}")
+            urls.append(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}")
+            audio_bytes = None
+            for dl_url in urls:
+                try:
+                    req = urllib.request.Request(dl_url, headers={"User-Agent": ua})
+                    with urllib.request.urlopen(req, timeout=120) as resp:
+                        audio_bytes = resp.read()
+                    break
+                except Exception:
+                    continue
+            if audio_bytes is None:
+                await msg.edit_text("❌ Не удалось скачать файл. Используй `/voice текст`")
+                return
         except Exception as e:
-            error_text = str(e)
-            if "timed out" in error_text.lower() or "timeout" in error_text.lower() or "time out" in error_text.lower():
-                await msg.edit_text("❌ Таймаут загрузки — Telegram недоступен из HF Spaces. Используй `/voice текст`")
-            else:
-                await msg.edit_text(f"❌ Ошибка загрузки: {error_text[:200]}")
+            await msg.edit_text(f"❌ Ошибка загрузки: {e}")
             return
 
         if not HF_TOKEN:
