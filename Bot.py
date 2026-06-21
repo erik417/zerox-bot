@@ -3779,7 +3779,7 @@ def main():
     app.add_handler(CommandHandler("resign", handle_resign))
     app.add_handler(CommandHandler("premium", handle_premium))
     app.add_handler(CommandHandler("donate", handle_premium))
-    app.add_handler(CallbackQueryHandler(handle_method_choice, pattern="^(method_|back_to_shop)$"))
+    app.add_handler(CallbackQueryHandler(handle_method_choice, pattern="^(method_crypto|method_stars|back_to_shop)$"))
     app.add_handler(CallbackQueryHandler(handle_crypto_pay, pattern="^crypto_pay_"))
     app.add_handler(CallbackQueryHandler(handle_stars_pay, pattern="^stars_pay_"))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
