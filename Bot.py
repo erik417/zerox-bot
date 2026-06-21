@@ -1711,11 +1711,6 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "⏳ Думаю.",
                 "⏳ Думаю..",
             ], repeat=2))
-            if TOKEN_MGR.get_balance(user_id) < 5:
-                anim_task.cancel()
-                await query.edit_message_text("❌ Недостаточно токенов для генерации проекта.")
-                return
-            TOKEN_MGR.spend(user_id, 5)
             project = await generate_project_structure(code_query, user_id)
             anim_task.cancel()
             if not project:
@@ -1735,9 +1730,6 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         else:
             if code is None:
-                if TOKEN_MGR.get_balance(user_id) < 1:
-                    await query.edit_message_text("❌ Недостаточно токенов.")
-                    return
                 async def _gen():
                     return await generate_code(code_query, user_id)
                 _get_cancel_flag(user_id).clear()
@@ -1772,17 +1764,6 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     reason = "таймаут" if code == "TIMEOUT" else (code[len("API_ERROR:"):] if (isinstance(code, str) and code.startswith("API_ERROR")) else "пустой ответ")
                     await query.edit_message_text(f"⚠️ Не удалось сгенерировать код ({reason}).")
                     return
-                cost = calc_cost(len(code))
-                if TOKEN_MGR.get_balance(user_id) < cost:
-                    await query.edit_message_text("❌ Недостаточно токенов для этого запроса.")
-                    return
-                TOKEN_MGR.spend(user_id, cost)
-            else:
-                cost = calc_cost(len(code))
-                if TOKEN_MGR.get_balance(user_id) < cost:
-                    await query.edit_message_text("❌ Недостаточно токенов для этого кода.")
-                    return
-                TOKEN_MGR.spend(user_id, cost)
 
             await query.delete_message()
             MAX_MSG_LEN = 4000
