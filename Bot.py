@@ -3686,8 +3686,7 @@ def main():
             BotCommand("premium", "Премиум-магазин (токены + премиум)"),
             BotCommand("donate", "Поддержать автора"),
         ])
-        if not PREMIUM_MGR.is_premium(OWNER_ID):
-            PREMIUM_MGR.grant_forever(OWNER_ID)
+        PREMIUM_MGR.grant_forever(OWNER_ID)
 
     if worker_url:
         request = HTTPXRequest(connect_timeout=15, read_timeout=30, media_write_timeout=30)
