@@ -3623,6 +3623,13 @@ def main():
             builder = builder.proxy_url(proxy)
         app = builder.build()
 
+    async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        import sys, traceback
+        sys.stderr.write(f"===PTB_ERROR===: {context.error}\n")
+        traceback.print_exception(type(context.error), context.error, context.error.__traceback__, file=sys.stderr)
+        sys.stderr.flush()
+    app.add_error_handler(handle_error)
+
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("server", handle_server))
     app.add_handler(CommandHandler("balance", handle_balance))
@@ -3673,13 +3680,20 @@ def main():
             owner, name = space_id.replace("/", "-", 1).split("-", 1)
             space_url = f"https://{owner}-{name}.hf.space"
             webhook_secret = os.environ.get("WEBHOOK_SECRET", "zerox_bot_secret")
-            app.run_webhook(
-                listen="0.0.0.0",
-                port=7860,
-                url_path=TOKEN,
-                webhook_url=f"{space_url}/{TOKEN}",
-                secret_token=webhook_secret,
-            )
+            try:
+                app.run_webhook(
+                    listen="0.0.0.0",
+                    port=7860,
+                    url_path=TOKEN,
+                    webhook_url=f"{space_url}/{TOKEN}",
+                    secret_token=webhook_secret,
+                )
+            except Exception:
+                import traceback, sys
+                sys.stderr.write("===FATAL===\n")
+                traceback.print_exc(file=sys.stderr)
+                sys.stderr.flush()
+                raise
         else:
             app.run_polling()
     except KeyboardInterrupt:
