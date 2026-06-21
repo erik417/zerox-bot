@@ -11,6 +11,7 @@ import random
 import time
 from datetime import timedelta
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
@@ -1542,13 +1543,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Voice → Music Search
 # ═══════════════════════════════════════════════
 
-q = __import__('urllib.parse').quote
-
 async def search_youtube(query: str) -> Optional[str]:
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(8)) as c:
             r = await asyncio.wait_for(c.get(
-                f"https://www.youtube.com/results?search_query={q(query + ' song')}",
+                f"https://www.youtube.com/results?search_query={quote(query + ' song')}",
                 headers={"User-Agent": "Mozilla/5.0"},
             ), timeout=10)
         if r.status_code != 200:
@@ -1567,14 +1566,14 @@ async def search_wikipedia(query: str) -> Optional[str]:
         try:
             async with httpx.AsyncClient(timeout=5) as c:
                 r = await c.get(
-                    f"https://{lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch={q(query)}&format=json&srlimit=1",
+                    f"https://{lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch={quote(query)}&format=json&srlimit=1",
                     headers={"User-Agent": "ZeroxBot/1.0"},
                 )
                 data = r.json()
                 pages = data.get("query", {}).get("search", [])
                 if pages:
                     title = pages[0]["title"]
-                    return f"{title}\nhttps://{lang}.wikipedia.org/wiki/{q(title)}"
+                    return f"{title}\nhttps://{lang}.wikipedia.org/wiki/{quote(title)}"
         except:
             continue
     return None
@@ -1582,28 +1581,29 @@ async def search_wikipedia(query: str) -> Optional[str]:
 async def do_voice_search(msg, text: str):
     text_short = text if len(text) <= 200 else text[:197] + "..."
     parts = [f"🎤 Распознано: _{text_short}_"]
-    dots = 0
 
     # YouTube
-    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на YouTube" + "." * (dots % 3 + 1))
+    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на YouTube...")
     yt = await search_youtube(text)
     if yt:
-        parts.append(f"\n📺 YouTube:\n{yt}")
-    dots += 1
+        parts.append(f"\n\n📺 **YouTube:**\n{yt}")
+    else:
+        parts.append(f"\n\n📺 **YouTube:** ничего не найдено")
 
     # Wikipedia
-    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на Wikipedia" + "." * (dots % 3 + 1))
+    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на Wikipedia...")
     wp = await search_wikipedia(text)
     if wp:
-        parts.append(f"\n📚 Wikipedia:\n{wp}")
-    dots += 1
+        parts.append(f"\n\n📚 **Wikipedia:**\n{wp}")
+    else:
+        parts.append(f"\n\n📚 **Wikipedia:** ничего не найдено")
 
     # Search links (always show)
     links = [
-        f"🌐 Google: https://www.google.com/search?q={q(text + ' song')}",
-        f"📘 Facebook: https://www.facebook.com/search/top?q={q(text)}",
+        f"🌐 Google: https://www.google.com/search?q={quote(text + ' song')}",
+        f"📘 Facebook: https://www.facebook.com/search/top?q={quote(text)}",
     ]
-    parts.append("\n🔗 **Поиск по сайтам:**\n" + "\n".join(links))
+    parts.append("\n\n🔗 **Поиск по сайтам:**\n" + "\n".join(links))
 
     result = "".join(parts)
     try:
