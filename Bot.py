@@ -386,9 +386,9 @@ def _get_lock(user_id: int) -> asyncio.Lock:
         _user_locks[user_id] = asyncio.Lock()
     return _user_locks[user_id]
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s", force=True)
+logging.basicConfig(level=logging.CRITICAL)
 for lib in ["httpx", "telegram", "httpcore", "urllib3"]:
-    logging.getLogger(lib).setLevel(logging.INFO)
+    logging.getLogger(lib).setLevel(logging.CRITICAL)
 
 logger = logging.getLogger("nova_bot")
 
@@ -1147,7 +1147,7 @@ async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = "👑 Владелец (всё бесплатно)" if is_owner else (
         "⭐ Премиум активен" if PREMIUM_MGR.is_premium(user.id) else "🔹 Обычный пользователь"
     )
-    bal = token_mgr.get_balance(user.id)
+    bal = TOKEN_MGR.get_balance(user.id)
     keyboard = [
         [InlineKeyboardButton("🔹 50 токенов — 500 AMD", callback_data="pay_50")],
         [InlineKeyboardButton("🔹 150 токенов — 1000 AMD", callback_data="pay_150")],
@@ -1255,7 +1255,7 @@ async def handle_owner_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("❌ Уже обработано")
         return
 
-    token_mgr.add_tokens(entry["user_id"], entry["tokens"])
+    TOKEN_MGR.add_tokens(entry["user_id"], entry["tokens"])
     msg = f"✅ Оплата подтверждена! +{entry['tokens']} токенов"
     if entry["pack_key"] == "premium_30d":
         PREMIUM_MGR.grant(entry["user_id"], 30)
