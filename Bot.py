@@ -3563,6 +3563,7 @@ async def handle_resign_callback(update: Update, context: ContextTypes.DEFAULT_T
 # ═══════════════════════════════════════════════
 
 def main():
+    import sys
     # Global exception hook
     def global_excepthook(exc_type, exc_value, exc_tb):
         sys.stderr.write("===GLOBAL EXCEPTION===\n")
@@ -3575,7 +3576,6 @@ def main():
         return
 
     worker_url = os.environ.get("WORKER_URL")
-    import sys
     sys.stderr.write(f"===== DIAG: AI_API_KEY={'SET' if AI_API_KEY else 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_MODEL={AI_MODEL} =====\n")
     sys.stderr.write(f"===== DIAG: WORKER_URL={worker_url or 'NOT SET'} =====\n")
