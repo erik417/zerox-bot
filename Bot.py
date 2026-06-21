@@ -1227,9 +1227,6 @@ async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     user = update.effective_user
-    if user.id == OWNER_ID:
-        await query.edit_message_text("👑 Ты владелец, у тебя и так всё есть.")
-        return
     if not CRYPTOBOT_TOKEN:
         await query.edit_message_text("❌ Оплата временно недоступна")
         return
