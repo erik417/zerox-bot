@@ -1050,8 +1050,13 @@ async def animate_reply(msg, full_text: str, reply_markup=None, cancel_event: as
 # ═══════════════════════════════════════════════
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import sys
+    sys.stderr.write(f"===START: user={update.effective_user.id}===\n")
+    sys.stderr.flush()
     track_user(update.effective_user.id, update.effective_user.username)
     TOKEN_MGR.daily_refill(update.effective_user.id)
+    sys.stderr.write(f"===START: daily_refill done===\n")
+    sys.stderr.flush()
     await update.message.reply_text(
         "👋 Привет! Я Zerox — твой AI помощник.\n"
         f"У тебя {TOKEN_MGR.get_balance(update.effective_user.id)} токенов.\n"
