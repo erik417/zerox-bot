@@ -3563,7 +3563,7 @@ def main():
     import sys
     sys.stderr.write(f"===== DIAG: AI_API_KEY={'SET' if AI_API_KEY else 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_MODEL={AI_MODEL} =====\n")
-    sys.stderr.write(f"===== DIAG: WORKER_URL=DISABLED =====\n")
+    sys.stderr.write(f"===== DIAG: WORKER_URL={worker_url or 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_API_URL={AI_API_URL} =====\n")
     sys.stderr.flush()
 
@@ -3605,11 +3605,23 @@ def main():
         if not PREMIUM_MGR.is_premium(OWNER_ID):
             PREMIUM_MGR.grant_forever(OWNER_ID)
 
-    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-    builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
-    if proxy:
-        builder = builder.proxy_url(proxy)
-    app = builder.build()
+    worker_url = os.environ.get("WORKER_URL")
+    if worker_url:
+        request = HTTPXRequest(connect_timeout=15, read_timeout=30, media_write_timeout=30)
+        bot = Bot(
+            token=TOKEN,
+            base_url=f"{worker_url.rstrip('/')}/bot",
+            base_file_url=f"{worker_url.rstrip('/')}/file/bot",
+            request=request,
+        )
+        builder = ApplicationBuilder().bot(bot).post_init(post_init)
+        app = builder.build()
+    else:
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
+        if proxy:
+            builder = builder.proxy_url(proxy)
+        app = builder.build()
 
     async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         import sys, traceback
