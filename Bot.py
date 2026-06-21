@@ -1023,6 +1023,24 @@ async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data={'target': bal, 'counter': 0, 'message': msg, 'uid': uid},
     )
 
+async def handle_voice_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_user(update.effective_user.id, update.effective_user.username)
+    args = context.args
+    if args:
+        text = " ".join(args)
+        context.user_data['voice_text'] = text
+        msg = await update.message.reply_text(f"🔍 Ищу: _{text}_", parse_mode="Markdown")
+        await do_voice_search(msg, text)
+    else:
+        await update.message.reply_text(
+            "🎤 <b>Голосовой поиск музыки</b>\n\n"
+            "Просто отправь голосовое сообщение — бот распознает речь "
+            "(армянский, русский, английский) и найдёт музыку на YouTube.\n\n"
+            "Или введи текст вручную:\n"
+            "<code>/voice название песни</code>",
+            parse_mode="HTML",
+        )
+
 async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_user.id, update.effective_user.username)
     uid = update.effective_user.id
@@ -3436,6 +3454,7 @@ def main():
         await app.bot.set_my_commands([
             BotCommand("start", "Запустить бота"),
             BotCommand("server", "Подключиться к консоли Minecraft"),
+            BotCommand("voice", "Голосовой поиск музыки"),
             BotCommand("balance", "Показать баланс токенов"),
             BotCommand("apikeys", "Проверить статус API ключей"),
             BotCommand("zerox", "Спросить у Zerox"),
@@ -3478,6 +3497,7 @@ def main():
         app = builder.build()
 
     app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(CommandHandler("voice", handle_voice_cmd))
     app.add_handler(CommandHandler("server", handle_server))
     app.add_handler(CommandHandler("balance", handle_balance))
     app.add_handler(CommandHandler("apikeys", handle_apikeys))
