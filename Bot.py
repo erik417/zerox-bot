@@ -1118,7 +1118,7 @@ async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════
 
 PAYMENT_PHONE = os.environ.get("PAYMENT_PHONE", "+374XXXXXXXX")
-PAYMENT_NOTE = "Telcell / EasyPay / Idram"
+PAYMENT_NOTE = "Telcell"
 PENDING_FILE = "pending_payments.json"
 
 TOKEN_PACKS = {
@@ -1159,7 +1159,7 @@ async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{status} | Баланс: <b>{bal}</b> токенов\n\n"
         f"Премиум: лимит <b>500</b> токенов (вместо 35)\n"
         f"Премиум: реген 1 токен / 5 мин (вместо 20 мин)\n\n"
-        f"Оплата переводом на <code>{PAYMENT_PHONE}</code> ({PAYMENT_NOTE})\n"
+        f"Оплата через <b>Telcell</b> на номер <code>{PAYMENT_PHONE}</code>\n"
         f"После перевода нажми «Я оплатил» — владелец подтвердит.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML",
@@ -1190,7 +1190,7 @@ async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text(
         f"💳 <b>{desc}</b>\n\n"
         f"Сумма: <b>{amt} AMD</b>\n"
-        f"Номер: <code>{PAYMENT_PHONE}</code>\n\n"
+        f"Telcell: <code>{PAYMENT_PHONE}</code>\n\n"
         f"1. Переведи {amt} AMD на номер выше\n"
         f"2. Нажми «✅ Я оплатил»\n"
         f"3. Владелец подтвердит вручную",
