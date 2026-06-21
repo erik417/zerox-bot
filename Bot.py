@@ -3674,7 +3674,7 @@ def main():
 
             BotCommand("balance", "Показать баланс токенов"),
             BotCommand("stars", "Баланс Stars (владелец)"),
-            BotCommand("model", "Какая модель отвечает"),
+            BotCommand("modelai", "Какая модель отвечает"),
             BotCommand("apikeys", "Проверить статус API ключей"),
             BotCommand("zerox", "Спросить у Zerox"),
             BotCommand("zeroxfix", "Исправить ошибки в загруженном проекте"),
@@ -3729,7 +3729,7 @@ def main():
     app.add_error_handler(handle_ptb_error)
 
     app.add_handler(CommandHandler("start", handle_start))
-    app.add_handler(CommandHandler("model", handle_model))
+    app.add_handler(CommandHandler("modelai", handle_model))
     app.add_handler(CommandHandler("server", handle_server))
     app.add_handler(CommandHandler("balance", handle_balance))
     app.add_handler(CommandHandler("stars", handle_stars_balance))
