@@ -1579,12 +1579,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         voice = update.message.voice
         try:
-            file = await asyncio.wait_for(voice.get_file(), timeout=15)
-            raw = io.BytesIO()
-            await asyncio.wait_for(file.download_to_memory(raw), timeout=30)
-            raw.seek(0)
-            audio_bytes = raw.read()
-        except asyncio.TimeoutError:
+            file = await asyncio.wait_for(voice.get_file(), timeout=30)
+            # Download directly from Telegram CDN, bypassing Cloudflare Worker
+            dl_url = f"https://api.telegram.org/file/bot{TOKEN}/{file.file_path}"
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60)) as c:
+                resp = await c.get(dl_url)
+                audio_bytes = resp.content
+        except (asyncio.TimeoutError, httpx.TimeoutException):
             await msg.edit_text("❌ Таймаут при загрузке голосового (файл слишком большой?)")
             return
 
