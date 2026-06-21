@@ -46,6 +46,7 @@ AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "30"))  # per-provider timeout
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
 AI_API_URL = os.environ.get("AI_API_URL", "https://api.groq.com/openai/v1/chat/completions")
 AI_MODEL = os.environ.get("AI_MODEL", "openai/gpt-oss-120b")
+BASIC_MODEL = os.environ.get("BASIC_MODEL", "llama-3.1-8b-instant")
 INSPECTOR_MODEL = os.environ.get("INSPECTOR_MODEL", AI_MODEL)
 CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
 CEREBRAS_API_URL = os.environ.get("CEREBRAS_API_URL", "https://api.cerebras.ai/v1/chat/completions")
@@ -2290,8 +2291,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history_context = CHAT_HISTORY.format_prompt(user_id)
                 prompt = f"{SYSTEM_PROMPT}\n{file_context}\n\n{history_context}ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\nUser: {user_text}\nAssistant:".strip()
 
-                used_model = MODEL
-                answer = await ask_ollama(prompt, temperature=0.3, max_tokens=chat_max_tokens)
+                used_model = BASIC_MODEL if not PREMIUM_MGR.is_premium(user_id) else AI_MODEL
+                answer = await ask_ollama(prompt, temperature=0.3, max_tokens=chat_max_tokens, model=used_model)
                 if _get_cancel_flag(user_id).is_set():
                     raise asyncio.CancelledError()
 
