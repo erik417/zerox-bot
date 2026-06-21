@@ -386,9 +386,9 @@ def _get_lock(user_id: int) -> asyncio.Lock:
         _user_locks[user_id] = asyncio.Lock()
     return _user_locks[user_id]
 
-logging.basicConfig(level=logging.ERROR, format="%(asctime)s %(levelname)s: %(message)s", force=True)
+logging.basicConfig(level=logging.CRITICAL)
 for lib in ["httpx", "telegram", "httpcore", "urllib3"]:
-    logging.getLogger(lib).setLevel(logging.ERROR)
+    logging.getLogger(lib).setLevel(logging.CRITICAL)
 
 logger = logging.getLogger("nova_bot")
 
@@ -3607,6 +3607,13 @@ def main():
         if proxy:
             builder = builder.proxy_url(proxy)
         app = builder.build()
+
+    async def handle_error(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        import sys, traceback
+        sys.stderr.write(f"ERROR: {context.error}\n")
+        traceback.print_exception(type(context.error), context.error, context.error.__traceback__, file=sys.stderr)
+        sys.stderr.flush()
+    app.add_error_handler(handle_error)
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("server", handle_server))
