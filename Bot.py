@@ -3682,29 +3682,39 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.TEXT & filters.UpdateType.EDITED_MESSAGE, handle_edited_message))
-    # silent start
+    # silent start - polling + aiohttp health endpoint
+    import asyncio
+    from aiohttp import web as aiohttp_web
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def healthz(request):
+        return aiohttp_web.json_response({"ok": True})
+    aio_app = aiohttp_web.Application()
+    aio_app.router.add_get("/healthz", healthz)
+    aio_runner = aiohttp_web.AppRunner(aio_app)
+
+    async def start_app():
+        await aio_runner.setup()
+        site = aiohttp_web.TCPSite(aio_runner, "0.0.0.0", 7860)
+        await site.start()
+        await app.initialize()
+        if app.post_init:
+            await app.post_init(app)
+        await app.updater.start_polling()
+        await app.start()
+        sys.stderr.write("===BOT STARTED (polling + healthz)===\n")
+        sys.stderr.flush()
+
     try:
-        space_id = os.environ.get("SPACE_ID")
-        if space_id:
-            owner, name = space_id.replace("/", "-", 1).split("-", 1)
-            space_url = f"https://{owner}-{name}.hf.space"
-            webhook_secret = os.environ.get("WEBHOOK_SECRET", "zerox_bot_secret")
-            sys.stderr.write(f"=== Starting webhook on 0.0.0.0:7860/{TOKEN} ===\n")
-            sys.stderr.write(f"=== SPACE_ID={space_id} ===\n")
-            sys.stderr.write(f"=== space_url={space_url} ===\n")
-            sys.stderr.write(f"=== webhook_secret={'SET' if webhook_secret else 'NOT SET'} ===\n")
-            sys.stderr.flush()
-            try:
-                app.run_polling()
-            except Exception:
-                sys.stderr.write("===RUN POLLING EXCEPTION===\n")
-                traceback.print_exc(file=sys.stderr)
-                sys.stderr.flush()
-                raise
-        else:
-            app.run_polling()
+        loop.run_until_complete(start_app())
+        loop.run_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        loop.run_until_complete(app.stop())
+        loop.run_until_complete(app.shutdown())
+        loop.close()
 
 if __name__ == "__main__":
     main()
