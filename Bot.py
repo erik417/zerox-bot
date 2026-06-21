@@ -1580,9 +1580,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         voice = update.message.voice
         try:
             await msg.edit_text("⬇️ Скачиваю голосовое...")
-            file = await voice.get_file()
             import urllib.request
-            dl_url = f"https://api.telegram.org/file/bot{TOKEN}/{file.file_path}"
+            import json as _json
+            # getFile directly via urllib
+            getfile_url = f"https://api.telegram.org/bot{TOKEN}/getFile"
+            req = urllib.request.Request(getfile_url, data=_json.dumps({"file_id": voice.file_id}).encode(), headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                file_path = _json.loads(resp.read())["result"]["file_path"]
+            # download via urllib
+            dl_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
             with urllib.request.urlopen(dl_url, timeout=120) as resp:
                 audio_bytes = resp.read()
         except Exception as e:
