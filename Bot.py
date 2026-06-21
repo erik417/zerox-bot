@@ -9,6 +9,8 @@ import asyncio
 import logging
 import random
 import time
+import traceback
+import sys
 from datetime import timedelta
 from typing import Optional
 
@@ -3561,6 +3563,13 @@ async def handle_resign_callback(update: Update, context: ContextTypes.DEFAULT_T
 # ═══════════════════════════════════════════════
 
 def main():
+    # Global exception hook
+    def global_excepthook(exc_type, exc_value, exc_tb):
+        sys.stderr.write("===GLOBAL EXCEPTION===\n")
+        traceback.print_exception(exc_type, exc_value, exc_tb, file=sys.stderr)
+        sys.stderr.flush()
+    sys.excepthook = global_excepthook
+
     if not TOKEN:
         logger.error("BOT_TOKEN environment variable not set!")
         return
@@ -3684,19 +3693,24 @@ def main():
             owner, name = space_id.replace("/", "-", 1).split("-", 1)
             space_url = f"https://{owner}-{name}.hf.space"
             webhook_secret = os.environ.get("WEBHOOK_SECRET", "zerox_bot_secret")
-            import sys
             sys.stderr.write(f"=== Starting webhook on 0.0.0.0:7860/{TOKEN} ===\n")
             sys.stderr.write(f"=== SPACE_ID={space_id} ===\n")
             sys.stderr.write(f"=== space_url={space_url} ===\n")
             sys.stderr.write(f"=== webhook_secret={'SET' if webhook_secret else 'NOT SET'} ===\n")
             sys.stderr.flush()
-            app.run_webhook(
-                listen="0.0.0.0",
-                port=7860,
-                url_path=TOKEN,
-                webhook_url=f"{space_url}/{TOKEN}",
-                secret_token=webhook_secret,
-            )
+            try:
+                app.run_webhook(
+                    listen="0.0.0.0",
+                    port=7860,
+                    url_path=TOKEN,
+                    webhook_url=f"{space_url}/{TOKEN}",
+                    secret_token=webhook_secret,
+                )
+            except Exception:
+                sys.stderr.write("===RUN WEBHOOK EXCEPTION===\n")
+                traceback.print_exc(file=sys.stderr)
+                sys.stderr.flush()
+                raise
         else:
             app.run_polling()
     except KeyboardInterrupt:
