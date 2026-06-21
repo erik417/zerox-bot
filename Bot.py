@@ -114,6 +114,9 @@ class PremiumManager:
         self.data[uid] = {"expires": new_expire, "level": level}
         self._save()
 
+    def is_premium(self, user_id: int) -> bool:
+        return self.get_level(user_id) == "premium"
+
     def grant_forever(self, user_id: int, level: str = "premium"):
         self.data[str(user_id)] = {"expires": -1, "level": level}
         self._save()
