@@ -1543,11 +1543,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Voice → Music Search
 # ═══════════════════════════════════════════════
 
-async def search_youtube(query: str) -> Optional[str]:
+async def search_youtube(query: str, music_only: bool = False) -> Optional[str]:
     try:
+        domain = "music.youtube.com" if music_only else "www.youtube.com"
         async with httpx.AsyncClient(timeout=httpx.Timeout(8)) as c:
             r = await asyncio.wait_for(c.get(
-                f"https://www.youtube.com/results?search_query={quote(query + ' song')}",
+                f"https://{domain}/results?search_query={quote(query)}",
                 headers={"User-Agent": "Mozilla/5.0"},
             ), timeout=10)
         if r.status_code != 200:
@@ -1556,26 +1557,26 @@ async def search_youtube(query: str) -> Optional[str]:
         titles = re.findall(r'"title":{"runs":\[{"text":"([^"]+)"}', r.text)
         if ids:
             vid = list(ids)[0]
-            title = titles[0] if titles else "Видео"
+            title = titles[0] if titles else "Трек"
             return f"🎵 {title}\nhttps://youtu.be/{vid}"
     except:
         return None
 
-async def search_wikipedia(query: str) -> Optional[str]:
-    for lang in ('hy', 'ru', 'en'):
-        try:
-            async with httpx.AsyncClient(timeout=5) as c:
-                r = await c.get(
-                    f"https://{lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch={quote(query)}&format=json&srlimit=1",
-                    headers={"User-Agent": "ZeroxBot/1.0"},
-                )
-                data = r.json()
-                pages = data.get("query", {}).get("search", [])
-                if pages:
-                    title = pages[0]["title"]
-                    return f"{title}\nhttps://{lang}.wikipedia.org/wiki/{quote(title)}"
-        except:
-            continue
+async def search_soundcloud(query: str) -> Optional[str]:
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(
+                f"https://soundcloud.com/search?q={quote(query)}",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+        if r.status_code != 200:
+            return None
+        urls = re.findall(r'<li><a href="(/[^"]+)"[^>]*>([^<]+)</a>', r.text)
+        for href, title in urls:
+            if "/search/" not in href and "/people/" not in href:
+                return f"🎧 {title.strip()}\nhttps://soundcloud.com{href}"
+    except:
+        pass
     return None
 
 async def do_voice_search(msg, text: str):
@@ -1590,20 +1591,24 @@ async def do_voice_search(msg, text: str):
     else:
         parts.append(f"\n\n📺 **YouTube:** ничего не найдено")
 
-    # Wikipedia
-    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на Wikipedia...")
-    wp = await search_wikipedia(text)
-    if wp:
-        parts.append(f"\n\n📚 **Wikipedia:**\n{wp}")
-    else:
-        parts.append(f"\n\n📚 **Wikipedia:** ничего не найдено")
+    # YouTube Music
+    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на YouTube Music...")
+    ytm = await search_youtube(text, music_only=True)
+    if ytm and ytm != yt:
+        parts.append(f"\n\n🎶 **YouTube Music:**\n{ytm}")
 
-    # Search links (always show)
+    # SoundCloud
+    await msg.edit_text(f"{parts[0]}\n\n🔍 Ищу на SoundCloud...")
+    sc = await search_soundcloud(text)
+    if sc:
+        parts.append(f"\n\n🎧 **SoundCloud:**\n{sc}")
+
+    # Direct music platform links
     links = [
-        f"🌐 Google: https://www.google.com/search?q={quote(text + ' song')}",
-        f"📘 Facebook: https://www.facebook.com/search/top?q={quote(text)}",
+        f"Spotify: https://open.spotify.com/search/{quote(text)}",
+        f"Яндекс Музыка: https://music.yandex.ru/search?text={quote(text)}",
     ]
-    parts.append("\n\n🔗 **Поиск по сайтам:**\n" + "\n".join(links))
+    parts.append(f"\n\n🔗 **Искать на:**\n" + "\n".join(links))
 
     result = "".join(parts)
     try:
