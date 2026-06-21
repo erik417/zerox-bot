@@ -1578,7 +1578,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         voice = update.message.voice
         try:
-            file = await voice.get_file()
+            file = await asyncio.wait_for(voice.get_file(), timeout=15)
             raw = io.BytesIO()
             await asyncio.wait_for(file.download_to_memory(raw), timeout=30)
             raw.seek(0)
@@ -1591,10 +1591,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text("❌ HF_TOKEN не настроен в Secrets Space")
             return
 
+        await msg.edit_text("🎤 Распознаю речь через Whisper...")
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120)) as c:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(180)) as c:
                 resp = await c.post(
-                    "https://api-inference.huggingface.co/models/openai/whisper-large-v3",
+                    "https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo",
                     data=audio_bytes,
                     headers={
                         "Authorization": f"Bearer {HF_TOKEN}",
