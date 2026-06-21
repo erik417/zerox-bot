@@ -3680,20 +3680,19 @@ def main():
             owner, name = space_id.replace("/", "-", 1).split("-", 1)
             space_url = f"https://{owner}-{name}.hf.space"
             webhook_secret = os.environ.get("WEBHOOK_SECRET", "zerox_bot_secret")
-            try:
-                app.run_webhook(
-                    listen="0.0.0.0",
-                    port=7860,
-                    url_path=TOKEN,
-                    webhook_url=f"{space_url}/{TOKEN}",
-                    secret_token=webhook_secret,
-                )
-            except Exception:
-                import traceback, sys
-                sys.stderr.write("===FATAL===\n")
-                traceback.print_exc(file=sys.stderr)
-                sys.stderr.flush()
-                raise
+            import sys
+            sys.stderr.write(f"=== Starting webhook on 0.0.0.0:7860/{TOKEN} ===\n")
+            sys.stderr.write(f"=== SPACE_ID={space_id} ===\n")
+            sys.stderr.write(f"=== space_url={space_url} ===\n")
+            sys.stderr.write(f"=== webhook_secret={'SET' if webhook_secret else 'NOT SET'} ===\n")
+            sys.stderr.flush()
+            app.run_webhook(
+                listen="0.0.0.0",
+                port=7860,
+                url_path=TOKEN,
+                webhook_url=f"{space_url}/{TOKEN}",
+                secret_token=webhook_secret,
+            )
         else:
             app.run_polling()
     except KeyboardInterrupt:
