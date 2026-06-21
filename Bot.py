@@ -40,6 +40,7 @@ CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "gpt-oss-120b")
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
 NVIDIA_API_URL = os.environ.get("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
 # ═══════════════════════════════════════════════
 # Token System
@@ -1517,6 +1518,78 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при загрузке файла: {e}")
         except Exception:
             pass
+
+# ═══════════════════════════════════════════════
+# Voice → Music Search
+# ═══════════════════════════════════════════════
+
+async def search_youtube(query: str) -> Optional[str]:
+    url = f"https://www.youtube.com/results?search_query={__import__('urllib.parse').quote(query + ' song')}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        if r.status_code != 200:
+            return None
+        ids = set(re.findall(r'"videoId":"([^"]{11})"', r.text))
+        titles = re.findall(r'"title":{"runs":\[{"text":"([^"]+)"}', r.text)
+        if ids:
+            vid = list(ids)[0]
+            title = titles[0] if titles else "Видео"
+            return f"🎵 {title}\nhttps://youtu.be/{vid}"
+    except:
+        return None
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_user(update.effective_user.id, update.effective_user.username)
+    msg = await update.message.reply_text("🎤 Распознаю речь...")
+    try:
+        voice = update.message.voice
+        file = await voice.get_file()
+        raw = io.BytesIO()
+        await file.download_to_memory(raw)
+        raw.seek(0)
+        audio_bytes = raw.read()
+
+        # Transcribe via HF Whisper
+        async with httpx.AsyncClient(timeout=30) as c:
+            resp = await c.post(
+                "https://api-inference.huggingface.co/models/openai/whisper-large-v3",
+                data=audio_bytes,
+                headers={
+                    "Authorization": f"Bearer {HF_TOKEN}",
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+        if resp.status_code == 503:
+            await msg.edit_text("⏳ Модель загружается, попробуй через минуту")
+            return
+        if resp.status_code != 200:
+            await msg.edit_text(f"❌ Ошибка STT: {resp.status_code}\n{resp.text[:200]}")
+            return
+        result = resp.json()
+        text = result.get("text", "").strip()
+        if not text:
+            await msg.edit_text("❌ Не удалось распознать речь")
+            return
+
+        await msg.edit_text(f"📝 Распознано: _{text}_\n🔍 Ищу музыку...", parse_mode="Markdown")
+
+        # Search YouTube
+        link = await search_youtube(text)
+        if link:
+            await msg.edit_text(
+                f"🎤 Распознано: _{text}_\n\n{link}",
+                parse_mode="Markdown",
+                disable_web_page_preview=False,
+            )
+        else:
+            search_url = f"https://www.youtube.com/results?search_query={__import__('urllib.parse').quote(text + ' song')}"
+            await msg.edit_text(
+                f"🎤 Распознано: _{text}_\n\n🔗 {search_url}",
+                parse_mode="Markdown",
+            )
+    except Exception as e:
+        await msg.edit_text(f"❌ Ошибка: {e}")
 
 # ═══════════════════════════════════════════════
 # Message Handler
@@ -3398,6 +3471,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_code_callback, pattern="^code_"))
     app.add_handler(CallbackQueryHandler(handle_stop_callback, pattern="^stop_gen$"))
     app.add_handler(CallbackQueryHandler(handle_resign_callback, pattern="^resign_"))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.TEXT & filters.UpdateType.EDITED_MESSAGE, handle_edited_message))
