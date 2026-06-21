@@ -668,7 +668,7 @@ async def iterative_code_improvement(
                 f"Сгенерируй код. Только код, без пояснений:\n"
             )
 
-        new_code = await ask_ollama(gen_prompt, temperature=0.3, max_tokens=1024)
+        new_code = await ask_ollama(gen_prompt, temperature=0.3, max_tokens=4096)
         if not new_code or new_code == "TIMEOUT" or (isinstance(new_code, str) and new_code.startswith("API_ERROR")):
             if isinstance(new_code, str) and "429" in new_code:
                 code = code or "(rate limit)"
@@ -685,7 +685,7 @@ async def iterative_code_improvement(
             f"```\n{new_code}\n```\n"
         )
 
-        review = await ask_ollama(insp_prompt, temperature=0.2, max_tokens=512)
+        review = await ask_ollama(insp_prompt, temperature=0.2, max_tokens=2048)
         if not review or review == "TIMEOUT" or (isinstance(review, str) and review.startswith("API_ERROR")):
             code = new_code
             break
@@ -1766,7 +1766,7 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     return
 
             await query.delete_message()
-            MAX_MSG_LEN = 4000
+            MAX_MSG_LEN = 8000
             if len(code) > MAX_MSG_LEN:
                 for i in range(0, len(code), MAX_MSG_LEN):
                     part = code[i:i+MAX_MSG_LEN]
