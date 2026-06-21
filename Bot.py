@@ -3,6 +3,7 @@ import json
 import re
 import io
 import html
+import struct
 import zipfile
 import asyncio
 import logging
@@ -152,6 +153,89 @@ class TokenManager:
         self._save()
 
 TOKEN_MGR = TokenManager()
+
+# ═══════════════════════════════════════════════
+# Minecraft RCON Client
+# ═══════════════════════════════════════════════
+
+SERVER_CONNECTIONS: dict[int, dict] = {}  # chat_id -> {'host':str,'port':int,'password':str}
+
+class RCONClient:
+    def __init__(self, host: str, port: int, password: str):
+        self.host = host
+        self.port = port
+        self.password = password
+        self.reader: Optional[asyncio.StreamReader] = None
+        self.writer: Optional[asyncio.StreamWriter] = None
+        self._req_id = 1
+
+    async def connect(self) -> str:
+        try:
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=5
+            )
+        except Exception as e:
+            return f"❌ Ошибка подключения: {e}"
+        # auth
+        pkt = self._packet(3, self.password)
+        self.writer.write(pkt)
+        await self.writer.drain()
+        resp = await self._recv()
+        if resp is None:
+            self.writer.close()
+            return "❌ Нет ответа от сервера (таймаут)"
+        _, rtype, _ = resp
+        if rtype == 2:
+            return "✅ Подключено к консоли Minecraft"
+        else:
+            self.writer.close()
+            return "❌ Ошибка авторизации RCON (неверный пароль?)"
+
+    async def command(self, cmd: str) -> str:
+        if not self.writer:
+            return "❌ Не подключён к серверу"
+        pkt = self._packet(2, cmd)
+        try:
+            self.writer.write(pkt)
+            await self.writer.drain()
+            resp = await self._recv()
+            if resp is None:
+                return "⚠️ Нет ответа (таймаут)"
+            _, _, payload = resp
+            return payload.strip() or "✅ Команда выполнена (пустой ответ)"
+        except Exception as e:
+            return f"❌ Ошибка: {e}"
+
+    async def disconnect(self):
+        if self.writer:
+            try:
+                self.writer.close()
+            except:
+                pass
+            self.writer = None
+            self.reader = None
+
+    def _packet(self, ptype: int, payload: str) -> bytes:
+        rid = self._req_id
+        self._req_id += 1
+        body = payload.encode("utf-8") + b"\x00\x00"
+        length = len(body) + 8  # rid(4) + type(4) + body
+        return struct.pack("<iiI", length, rid, ptype) + body
+
+    async def _recv(self) -> Optional[tuple[int, int, str]]:
+        try:
+            raw = await asyncio.wait_for(self.reader.readexactly(4), timeout=5)
+        except:
+            return None
+        length = struct.unpack("<i", raw)[0]
+        try:
+            rest = await asyncio.wait_for(self.reader.readexactly(length), timeout=5)
+        except:
+            return None
+        rid = struct.unpack("<i", rest[:4])[0]
+        rtype = struct.unpack("<i", rest[4:8])[0]
+        payload = rest[8:-2].decode("utf-8", errors="replace")
+        return rid, rtype, payload
 
 def calc_cost(answer_len: int) -> int:
     if answer_len < 50:
@@ -938,6 +1022,44 @@ async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data={'target': bal, 'counter': 0, 'message': msg, 'uid': uid},
     )
 
+async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_user(update.effective_user.id, update.effective_user.username)
+    uid = update.effective_user.id
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    if args and args[0].lower() == "off":
+        old = SERVER_CONNECTIONS.pop(chat_id, None)
+        if old and "rcon" in old:
+            await old["rcon"].disconnect()
+        await update.message.reply_text("🚪 Консоль отключена")
+        return
+
+    if not args or len(args) < 3:
+        await update.message.reply_text(
+            "Использование:\n"
+            "/server <ip> <порт> <пароль>\n"
+            "Пример: /server 192.168.1.10 25575 myrconpass\n"
+            "После подключения пиши команды (например /ban Player) — "
+            "они уйдут на сервер.\n"
+            "Отключение: /server off"
+        )
+        return
+
+    host, port_str, password = args[0], args[1], " ".join(args[2:])
+    try:
+        port = int(port_str)
+    except ValueError:
+        await update.message.reply_text("❌ Порт должен быть числом")
+        return
+
+    msg = await update.message.reply_text("🔌 Подключаюсь к серверу...")
+    rcon = RCONClient(host, port, password)
+    result = await rcon.connect()
+    if "✅" in result:
+        SERVER_CONNECTIONS[chat_id] = {"host": host, "port": port, "rcon": rcon}
+    await msg.edit_text(result)
+
 async def handle_apikeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check Groq API key limits."""
     await update.message.reply_text("🔍 Проверяю API ключи...")
@@ -1428,6 +1550,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text = re.sub(rf"@{re.escape(context.bot.username)}\s*", "", user_text, flags=re.I).strip()
         if not user_text:
             return
+
+    # Minecraft console mode
+    chat_id = update.effective_chat.id
+    if chat_id in SERVER_CONNECTIONS and "rcon" in SERVER_CONNECTIONS[chat_id]:
+        rcon = SERVER_CONNECTIONS[chat_id]["rcon"]
+        cmd = user_text[1:] if user_text.startswith("/") else user_text
+        status_msg = await update.message.reply_text(f"⏳ Выполняю: {cmd}")
+        resp = await rcon.command(cmd)
+        await status_msg.edit_text(f"💻 {resp}")
+        return
 
     # Natural language grant for owner
     if is_owner(update):
@@ -3191,6 +3323,7 @@ def main():
     async def post_init(app):
         await app.bot.set_my_commands([
             BotCommand("start", "Запустить бота"),
+            BotCommand("server", "Подключиться к консоли Minecraft"),
             BotCommand("balance", "Показать баланс токенов"),
             BotCommand("apikeys", "Проверить статус API ключей"),
             BotCommand("zerox", "Спросить у Zerox"),
@@ -3233,6 +3366,7 @@ def main():
         app = builder.build()
 
     app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(CommandHandler("server", handle_server))
     app.add_handler(CommandHandler("balance", handle_balance))
     app.add_handler(CommandHandler("apikeys", handle_apikeys))
     app.add_handler(CommandHandler("zerox", handle_zerox))
