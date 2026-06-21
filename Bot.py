@@ -1545,8 +1545,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def search_youtube(query: str) -> Optional[str]:
     url = f"https://www.youtube.com/results?search_query={__import__('urllib.parse').quote(query + ' song')}"
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8)) as c:
+            r = await asyncio.wait_for(c.get(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=10)
         if r.status_code != 200:
             return None
         ids = set(re.findall(r'"videoId":"([^"]{11})"', r.text))
@@ -1559,19 +1559,26 @@ async def search_youtube(query: str) -> Optional[str]:
         return None
 
 async def do_voice_search(msg, text: str):
-    link = await search_youtube(text)
-    if link:
-        await msg.edit_text(
-            f"🎤 Распознано: _{text}_\n\n{link}",
-            parse_mode="Markdown",
-            disable_web_page_preview=False,
-        )
-    else:
-        search_url = f"https://www.youtube.com/results?search_query={__import__('urllib.parse').quote(text + ' song')}"
-        await msg.edit_text(
-            f"🎤 Распознано: _{text}_\n\n🔗 {search_url}",
-            parse_mode="Markdown",
-        )
+    try:
+        link = await asyncio.wait_for(search_youtube(text), timeout=15)
+    except (asyncio.TimeoutError, Exception):
+        link = None
+    text_short = text if len(text) <= 200 else text[:197] + "..."
+    search_url = f"https://www.youtube.com/results?search_query={__import__('urllib.parse').quote(text + ' song')}"
+    try:
+        if link:
+            await msg.edit_text(
+                f"🎤 Распознано: _{text_short}_\n\n{link}",
+                parse_mode="Markdown",
+                disable_web_page_preview=False,
+            )
+        else:
+            await msg.edit_text(
+                f"🎤 Распознано: _{text_short}_\n\n🔗 {search_url}",
+                parse_mode="Markdown",
+            )
+    except Exception:
+        pass
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_user.id, update.effective_user.username)
