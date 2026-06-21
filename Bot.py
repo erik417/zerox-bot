@@ -15,7 +15,7 @@ from datetime import timedelta
 from typing import Optional
 
 import httpx
-from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from telegram import Bot, Update, InputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, LabeledPrice
 from telegram.request import HTTPXRequest
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -1175,6 +1175,13 @@ CRYPTO_PRICES = {
     "premium": "6",
 }
 
+STARS_PRICES = {
+    "50": 50,
+    "150": 100,
+    "plus_30d": 300,
+    "premium": 600,
+}
+
 def _load_crypto_pending():
     try:
         with open(CRYPTO_PENDING_FILE, encoding="utf-8") as f:
@@ -1195,46 +1202,93 @@ async def _crypto_api_call(method, data=None):
             r = await client.post(f"{CRYPTOBOT_API}/{method}", headers=headers, timeout=15)
         return r.json()
 
+def _premium_status_str(user) -> str:
+    is_owner = user.id == OWNER_ID
+    if is_owner:
+        return "👑 Владелец (всё бесплатно)"
+    return "⭐ Премиум активен" if PREMIUM_MGR.is_premium(user.id) else "🔹 Обычный пользователь"
+
+def _tier_info_str(user_id: int) -> str:
+    level = PREMIUM_MGR.get_level(user_id)
+    if not level:
+        return "🔹 Обычный — лимит 35, реген 20 мин"
+    if level == "plus":
+        return "⭐ Plus — лимит 100, реген 10 мин"
+    return "👑 Премиум — лимит 200, реген 5 мин"
+
 async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    is_owner = user.id == OWNER_ID
-    status = "👑 Владелец (всё бесплатно)" if is_owner else (
-        "⭐ Премиум активен" if PREMIUM_MGR.is_premium(user.id) else "🔹 Обычный пользователь"
-    )
     bal = TOKEN_MGR.get_balance(user.id)
-    level = PREMIUM_MGR.get_level(user.id)
-    if not level:
-        tier_info = "🔹 Обычный — лимит 35, реген 20 мин"
-    elif level == "plus":
-        tier_info = "⭐ Plus — лимит 100, реген 10 мин"
-    else:
-        tier_info = "👑 Премиум — лимит 200, реген 5 мин"
-    keyboard = [
-        [InlineKeyboardButton("🔹 50 токенов — $0.50", callback_data="pay_50")],
-        [InlineKeyboardButton("🔹 150 токенов — $1", callback_data="pay_150")],
-        [InlineKeyboardButton("⭐ Plus 30д (200 токенов) — $3", callback_data="pay_plus_30d")],
-        [InlineKeyboardButton("👑 Премиум 30д (500 токенов) — $6", callback_data="pay_premium")],
-    ]
     text = (
         f"💰 <b>Магазин</b>\n\n"
-        f"{status} | Баланс: <b>{bal}</b> токенов\n\n"
-        f"{tier_info}\n\n"
+        f"{_premium_status_str(user)} | Баланс: <b>{bal}</b> токенов\n\n"
+        f"{_tier_info_str(user.id)}\n\n"
+        f"Выбери способ оплаты:"
     )
-    if CRYPTOBOT_TOKEN:
-        text += f"💳 Оплата через <b>CryptoBot</b> (USDT) — автоматически"
-    else:
-        text += "❌ Оплата временно недоступна"
+    keyboard = [[
+        InlineKeyboardButton("💳 CryptoBot USDT", callback_data="method_crypto"),
+        InlineKeyboardButton("⭐ Telegram Stars", callback_data="method_stars"),
+    ]]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
-async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _show_crypto_packs(query, user):
+    bal = TOKEN_MGR.get_balance(user.id)
+    text = (
+        f"💰 <b>Магазин — CryptoBot USDT</b>\n\n"
+        f"{_premium_status_str(user)} | Баланс: <b>{bal}</b> токенов\n\n"
+        f"{_tier_info_str(user.id)}\n\n"
+    )
+    if not CRYPTOBOT_TOKEN:
+        text += "❌ CryptoBot не настроен"
+        await query.edit_message_text(text, parse_mode="HTML")
+        return
+    text += "Выбери пакет:"
+    keyboard = [
+        [InlineKeyboardButton("🔹 50 токенов — $0.50", callback_data="crypto_pay_50")],
+        [InlineKeyboardButton("🔹 150 токенов — $1", callback_data="crypto_pay_150")],
+        [InlineKeyboardButton("⭐ Plus 30д — $3", callback_data="crypto_pay_plus_30d")],
+        [InlineKeyboardButton("👑 Премиум 30д — $6", callback_data="crypto_pay_premium")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_shop")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+async def _show_stars_packs(query, user):
+    bal = TOKEN_MGR.get_balance(user.id)
+    text = (
+        f"💰 <b>Магазин — Telegram Stars</b>\n\n"
+        f"{_premium_status_str(user)} | Баланс: <b>{bal}</b> токенов\n\n"
+        f"{_tier_info_str(user.id)}\n\n"
+        f"Выбери пакет:"
+    )
+    keyboard = [
+        [InlineKeyboardButton("🔹 50 токенов — 50 ⭐", callback_data="stars_pay_50")],
+        [InlineKeyboardButton("🔹 150 токенов — 100 ⭐", callback_data="stars_pay_150")],
+        [InlineKeyboardButton("⭐ Plus 30д — 300 ⭐", callback_data="stars_pay_plus_30d")],
+        [InlineKeyboardButton("👑 Премиум 30д — 600 ⭐", callback_data="stars_pay_premium")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_shop")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+async def handle_method_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    if query.data == "method_crypto":
+        await _show_crypto_packs(query, user)
+    elif query.data == "method_stars":
+        await _show_stars_packs(query, user)
+    elif query.data == "back_to_shop":
+        await handle_premium(update, context)
+
+async def handle_crypto_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
     if not CRYPTOBOT_TOKEN:
-        await query.edit_message_text("❌ Оплата временно недоступна")
+        await query.edit_message_text("❌ CryptoBot не настроен")
         return
 
-    pack_key = query.data.replace("pay_", "")
+    pack_key = query.data.replace("crypto_pay_", "")
     pack = TOKEN_PACKS.get(pack_key)
     if not pack:
         await query.edit_message_text("❌ Пакет не найден")
@@ -1295,6 +1349,83 @@ async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"Нажми кнопку ниже, чтобы оплатить через CryptoBot.\n"
         f"Счёт действителен 1 час.",
         reply_markup=kb,
+        parse_mode="HTML",
+    )
+
+async def handle_stars_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+
+    pack_key = query.data.replace("stars_pay_", "")
+    pack = TOKEN_PACKS.get(pack_key)
+    if not pack:
+        await query.edit_message_text("❌ Пакет не найден")
+        return
+
+    tokens, desc = pack
+    stars = STARS_PRICES.get(pack_key)
+    if not stars:
+        await query.edit_message_text("❌ Цена не найдена")
+        return
+
+    await query.edit_message_text("⏳ Создаю счёт...")
+
+    try:
+        link = await context.bot.create_invoice_link(
+            title=desc,
+            description=f"{tokens} токенов для Zerox Bot",
+            payload=f"stars_{pack_key}",
+            currency="XTR",
+            prices=[LabeledPrice(label=desc, amount=stars)],
+        )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Ошибка создания счёта: {e}")
+        return
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⭐ Оплатить Stars", url=link)],
+    ])
+    await query.edit_message_text(
+        f"⭐ <b>{desc}</b>\n\n"
+        f"Сумма: <b>{stars} Stars</b>\n\n"
+        f"Нажми кнопку ниже, чтобы оплатить через Telegram Stars.\n"
+        f"После оплаты бот автоматически зачислит токены.",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+
+async def handle_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    payment = update.message.successful_payment
+    payload = payment.invoice_payload
+    user = update.effective_user
+
+    if not payload.startswith("stars_"):
+        return
+
+    pack_key = payload.replace("stars_", "")
+    pack = TOKEN_PACKS.get(pack_key)
+    if not pack:
+        await update.message.reply_text("❌ Пакет не найден. Обратись к @Er1kos_designer")
+        return
+
+    tokens, desc = pack
+    TOKEN_MGR.add_tokens(user.id, tokens)
+    msg = f"✅ Оплата Stars получена! +{tokens} токенов"
+    if pack_key == "plus_30d":
+        PREMIUM_MGR.grant(user.id, 30, level="plus")
+        msg += "\n⭐ Plus 30 дней"
+    elif pack_key == "premium":
+        PREMIUM_MGR.grant(user.id, 30, level="premium")
+        msg += "\n👑 Премиум 30 дней"
+
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+    await context.bot.send_message(
+        OWNER_ID,
+        f"⭐ <b>Оплата Stars</b>\n\n"
+        f"@{user.username or user.first_name} (ID: {user.id})\n"
+        f"{desc}\n{payment.total_amount} Stars",
         parse_mode="HTML",
     )
 
@@ -3648,7 +3779,10 @@ def main():
     app.add_handler(CommandHandler("resign", handle_resign))
     app.add_handler(CommandHandler("premium", handle_premium))
     app.add_handler(CommandHandler("donate", handle_premium))
-    app.add_handler(CallbackQueryHandler(handle_pay_callback, pattern="^pay_"))
+    app.add_handler(CallbackQueryHandler(handle_method_choice, pattern="^(method_|back_to_shop)$"))
+    app.add_handler(CallbackQueryHandler(handle_crypto_pay, pattern="^crypto_pay_"))
+    app.add_handler(CallbackQueryHandler(handle_stars_pay, pattern="^stars_pay_"))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     app.add_handler(CommandHandler("ban", handle_ban))
     app.add_handler(CommandHandler("kick", handle_kick))
     app.add_handler(CommandHandler("mute", handle_mute))
