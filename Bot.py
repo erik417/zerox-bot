@@ -1136,12 +1136,12 @@ async def handle_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.edit_text(result)
 
 # ═══════════════════════════════════════════════
-# Payment / Premium Commands (manual — Telcell/EasyPay)
+# Payment / Premium Commands (automatic — CryptoBot)
 # ═══════════════════════════════════════════════
 
-PAYMENT_PHONE = os.environ.get("PAYMENT_PHONE", "+374XXXXXXXX")
-PAYMENT_NOTE = "Telcell"
-PENDING_FILE = "pending_payments.json"
+CRYPTOBOT_TOKEN = os.environ.get("CRYPTOBOT_TOKEN", "")
+CRYPTOBOT_API = "https://pay.crypt.bot/api"
+CRYPTO_PENDING_FILE = "crypto_pending.json"
 
 TOKEN_PACKS = {
     "50":            (50,   "50 токенов"),
@@ -1150,18 +1150,32 @@ TOKEN_PACKS = {
     "premium_forever": (1500, "1500 токенов + Премиум навсегда"),
 }
 
-PRICES = {"50": "500", "150": "1000", "premium_30d": "2500", "premium_forever": "5000"}
+CRYPTO_PRICES = {
+    "50": "1.5",
+    "150": "3",
+    "premium_30d": "7",
+    "premium_forever": "15",
+}
 
-def _load_pending():
+def _load_crypto_pending():
     try:
-        with open(PENDING_FILE, encoding="utf-8") as f:
+        with open(CRYPTO_PENDING_FILE, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return []
 
-def _save_pending(data):
-    with open(PENDING_FILE, "w", encoding="utf-8") as f:
+def _save_crypto_pending(data):
+    with open(CRYPTO_PENDING_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+async def _crypto_api_call(method, data=None):
+    headers = {"Crypto-Pay-API-Token": CRYPTOBOT_TOKEN}
+    async with httpx.AsyncClient() as client:
+        if data:
+            r = await client.post(f"{CRYPTOBOT_API}/{method}", json=data, headers=headers, timeout=15)
+        else:
+            r = await client.post(f"{CRYPTOBOT_API}/{method}", headers=headers, timeout=15)
+        return r.json()
 
 async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1171,21 +1185,22 @@ async def handle_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     bal = TOKEN_MGR.get_balance(user.id)
     keyboard = [
-        [InlineKeyboardButton("🔹 50 токенов — 500 AMD", callback_data="pay_50")],
-        [InlineKeyboardButton("🔹 150 токенов — 1000 AMD", callback_data="pay_150")],
-        [InlineKeyboardButton("⭐ 500 токенов + Премиум 30д — 2500 AMD", callback_data="pay_premium_30d")],
-        [InlineKeyboardButton("🏆 1500 токенов + Премиум навсегда — 5000 AMD", callback_data="pay_premium_forever")],
+        [InlineKeyboardButton("🔹 50 токенов — $1.50", callback_data="pay_50")],
+        [InlineKeyboardButton("🔹 150 токенов — $3", callback_data="pay_150")],
+        [InlineKeyboardButton("⭐ 500 токенов + Премиум 30д — $7", callback_data="pay_premium_30d")],
+        [InlineKeyboardButton("🏆 1500 токенов + Премиум навсегда — $15", callback_data="pay_premium_forever")],
     ]
-    await update.message.reply_text(
+    text = (
         f"💰 <b>Премиум-магазин</b>\n\n"
         f"{status} | Баланс: <b>{bal}</b> токенов\n\n"
         f"Премиум: лимит <b>500</b> токенов (вместо 35)\n"
         f"Премиум: реген 1 токен / 5 мин (вместо 20 мин)\n\n"
-        f"Оплата через <b>Telcell</b> на номер <code>{PAYMENT_PHONE}</code>\n"
-        f"После перевода нажми «Я оплатил» — владелец подтвердит.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML",
     )
+    if CRYPTOBOT_TOKEN:
+        text += f"Оплата через <b>CryptoBot</b> (USDT) — автоматически"
+    else:
+        text += "❌ Оплата временно недоступна"
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1193,6 +1208,9 @@ async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     if user.id == OWNER_ID:
         await query.edit_message_text("👑 Ты владелец, у тебя и так всё есть.")
+        return
+    if not CRYPTOBOT_TOKEN:
+        await query.edit_message_text("❌ Оплата временно недоступна")
         return
 
     pack_key = query.data.replace("pay_", "")
@@ -1202,115 +1220,62 @@ async def handle_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     tokens, desc = pack
-    amt = PRICES.get(pack_key, "?")
-    context.user_data["pending_pack"] = pack_key
+    amount = CRYPTO_PRICES.get(pack_key)
+    if not amount:
+        await query.edit_message_text("❌ Цена не найдена")
+        return
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Я оплатил", callback_data=f"confirm_{user.id}")],
-        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_pay")],
+    await query.edit_message_text("⏳ Создаю счёт...")
+
+    try:
+        bot_me = await context.bot.get_me()
+        result = await _crypto_api_call("createInvoice", {
+            "asset": "USDT",
+            "amount": amount,
+            "description": desc,
+            "hidden_message": f"✅ Оплата получена! +{tokens} токенов",
+            "paid_btn_name": "openBot",
+            "paid_btn_url": f"https://t.me/{bot_me.username}",
+            "allow_anonymous": False,
+            "allow_comments": False,
+            "expires_in": 3600,
+        })
+    except Exception as e:
+        await query.edit_message_text(f"❌ Ошибка создания счёта: {e}")
+        return
+
+    if not result.get("ok"):
+        await query.edit_message_text(f"❌ Ошибка CryptoBot: {result}")
+        return
+
+    invoice = result["result"]
+    invoice_id = invoice["invoice_id"]
+    pay_url = invoice["pay_url"]
+
+    pending = _load_crypto_pending()
+    pending.append({
+        "invoice_id": invoice_id,
+        "user_id": user.id,
+        "username": user.username or user.first_name,
+        "pack_key": pack_key,
+        "tokens": tokens,
+        "desc": desc,
+        "ts": time.time(),
+        "status": "active",
+    })
+    _save_crypto_pending(pending)
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Оплатить", url=pay_url)],
     ])
     await query.edit_message_text(
         f"💳 <b>{desc}</b>\n\n"
-        f"Сумма: <b>{amt} AMD</b>\n"
-        f"Telcell: <code>{PAYMENT_PHONE}</code>\n\n"
-        f"1. Переведи {amt} AMD на номер выше\n"
-        f"2. Нажми «✅ Я оплатил»\n"
-        f"3. Владелец подтвердит вручную",
-        reply_markup=keyboard,
+        f"Сумма: <b>${amount} USDT</b>\n\n"
+        f"Нажми кнопку ниже, чтобы оплатить через CryptoBot.\n"
+        f"Счёт действителен 1 час.",
+        reply_markup=kb,
         parse_mode="HTML",
     )
-
-async def handle_confirm_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = update.effective_user
-    pack_key = context.user_data.get("pending_pack")
-    if not pack_key:
-        await query.edit_message_text("❌ Сессия истекла. Начни заново: /premium")
-        return
-
-    pack = TOKEN_PACKS.get(pack_key)
-    if not pack:
-        await query.edit_message_text("❌ Пакет не найден")
-        return
-
-    tokens, desc = pack
-    amt = PRICES.get(pack_key, "?")
-    pid = f"{user.id}_{int(time.time())}"
-    pending = _load_pending()
-    pending.append({"id": pid, "user_id": user.id, "username": user.username or user.first_name, "pack_key": pack_key, "tokens": tokens, "desc": desc, "ts": time.time()})
-    _save_pending(pending)
-
-    await query.edit_message_text(
-        f"⏳ Заявка отправлена владельцу. Ожидай подтверждения.\n\n{desc}\n{amt} AMD на {PAYMENT_PHONE}",
-        parse_mode="HTML",
-    )
-
-    owner_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Подтвердить", callback_data=f"ok_{pid}")],
-        [InlineKeyboardButton("❌ Отклонить", callback_data=f"no_{pid}")],
-    ])
-    await context.bot.send_message(
-        OWNER_ID,
-        f"🔔 <b>Новая заявка</b>\n\n"
-        f"@{user.username or user.first_name} (ID: {user.id})\n"
-        f"{desc}\n{amt} AMD на {PAYMENT_PHONE}",
-        reply_markup=owner_kb,
-        parse_mode="HTML",
-    )
-
-async def handle_cancel_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data.pop("pending_pack", None)
-    await query.edit_message_text("❌ Отменено.")
-
-async def handle_owner_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if update.effective_user.id != OWNER_ID:
-        return
-    pid = query.data.replace("ok_", "")
-    pending = _load_pending()
-    entry = next((p for p in pending if p["id"] == pid), None)
-    if not entry:
-        await query.edit_message_text("❌ Уже обработано")
-        return
-
-    TOKEN_MGR.add_tokens(entry["user_id"], entry["tokens"])
-    msg = f"✅ Оплата подтверждена! +{entry['tokens']} токенов"
-    if entry["pack_key"] == "premium_30d":
-        PREMIUM_MGR.grant(entry["user_id"], 30)
-        msg += "\n🎖 Премиум 30 дней"
-    elif entry["pack_key"] == "premium_forever":
-        PREMIUM_MGR.grant_forever(entry["user_id"])
-        msg += "\n🏆 Премиум навсегда"
-
-    try:
-        await context.bot.send_message(entry["user_id"], msg, parse_mode="HTML")
-    except Exception:
-        pass
-
-    _save_pending([p for p in pending if p["id"] != pid])
-    await query.edit_message_text(f"✅ Подтверждено: {entry['desc']} — @{entry['username']}")
-
-async def handle_owner_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if update.effective_user.id != OWNER_ID:
-        return
-    pid = query.data.replace("no_", "")
-    pending = _load_pending()
-    entry = next((p for p in pending if p["id"] == pid), None)
-    if not entry:
-        await query.edit_message_text("❌ Уже обработано")
-        return
-    _save_pending([p for p in pending if p["id"] != pid])
-    try:
-        await context.bot.send_message(entry["user_id"], "❌ Владелец отклонил заявку. Свяжись с @Er1kos_designer", parse_mode="HTML")
-    except Exception:
-        pass
-    await query.edit_message_text(f"❌ Отклонено: {entry['desc']} — @{entry['username']}")
 
 async def handle_apikeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check Groq API key limits."""
@@ -3663,10 +3628,6 @@ def main():
     app.add_handler(CommandHandler("premium", handle_premium))
     app.add_handler(CommandHandler("donate", handle_premium))
     app.add_handler(CallbackQueryHandler(handle_pay_callback, pattern="^pay_"))
-    app.add_handler(CallbackQueryHandler(handle_confirm_paid, pattern="^confirm_"))
-    app.add_handler(CallbackQueryHandler(handle_cancel_pay, pattern="^cancel_pay$"))
-    app.add_handler(CallbackQueryHandler(handle_owner_confirm, pattern="^ok_"))
-    app.add_handler(CallbackQueryHandler(handle_owner_reject, pattern="^no_"))
     app.add_handler(CommandHandler("ban", handle_ban))
     app.add_handler(CommandHandler("kick", handle_kick))
     app.add_handler(CommandHandler("mute", handle_mute))
@@ -3697,6 +3658,41 @@ def main():
     aio_app.router.add_get("/healthz", healthz)
     aio_runner = aiohttp_web.AppRunner(aio_app)
 
+    async def check_crypto_payments():
+        while True:
+            try:
+                pending = _load_crypto_pending()
+                active = [p for p in pending if p.get("status") == "active"]
+                if active:
+                    invoice_ids = [p["invoice_id"] for p in active]
+                    result = await _crypto_api_call("getInvoices", {"invoice_ids": invoice_ids})
+                    if result.get("ok"):
+                        items = result["result"].get("items", [])
+                        for inv in items:
+                            inv_id = inv["invoice_id"]
+                            status = inv["status"]
+                            if status == "paid":
+                                entry = next((p for p in pending if p["invoice_id"] == inv_id), None)
+                                if entry:
+                                    TOKEN_MGR.add_tokens(entry["user_id"], entry["tokens"])
+                                    msg = f"✅ Оплата получена! +{entry['tokens']} токенов"
+                                    if entry["pack_key"] == "premium_30d":
+                                        PREMIUM_MGR.grant(entry["user_id"], 30)
+                                        msg += "\n🎖 Премиум 30 дней"
+                                    elif entry["pack_key"] == "premium_forever":
+                                        PREMIUM_MGR.grant_forever(entry["user_id"])
+                                        msg += "\n🏆 Премиум навсегда"
+                                    try:
+                                        await app.bot.send_message(entry["user_id"], msg, parse_mode="HTML")
+                                    except Exception:
+                                        pass
+                                    entry["status"] = "paid"
+                        _save_crypto_pending(pending)
+            except Exception as e:
+                sys.stderr.write(f"===CRYPTO_CHECK_ERROR: {e}\n")
+                sys.stderr.flush()
+            await asyncio.sleep(30)
+
     async def start_app():
         await aio_runner.setup()
         site = aiohttp_web.TCPSite(aio_runner, "0.0.0.0", 7860)
@@ -3707,7 +3703,8 @@ def main():
         await app.bot.delete_webhook()
         await app.updater.start_polling()
         await app.start()
-        sys.stderr.write("===BOT STARTED (polling + healthz)===\n")
+        asyncio.ensure_future(check_crypto_payments())
+        sys.stderr.write("===BOT STARTED (polling + healthz + crypto)===\n")
         sys.stderr.flush()
 
     try:
