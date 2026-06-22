@@ -2444,6 +2444,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 CHAT_HISTORY.add(user_id, "user", user_text)
                 CHAT_HISTORY.add(user_id, "assistant", answer)
 
+                if chat_type in ("group", "supergroup"):
+                    await _exec_ai_commands(answer, update, context)
+
                 elapsed = asyncio.get_event_loop().time() - start
                 tag = "pre" if is_code_request(user_text) or is_project_request(user_text) else "blockquote"
                 time_str = f"\n\n⏱ {elapsed:.1f}s"
@@ -3407,6 +3410,32 @@ async def handle_kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
+
+_AI_CMD_MAP = {
+    "kick": handle_kick,
+    "ban": handle_ban,
+    "unban": handle_unban,
+    "mute": handle_mute,
+    "unmute": handle_unmute,
+    "warn": handle_warn,
+    "unwarn": handle_unwarn,
+    "clear": handle_clear,
+    "info": handle_info,
+}
+
+async def _exec_ai_commands(answer: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for cmd, handler in _AI_CMD_MAP.items():
+        pattern = rf'/{cmd}\s+(\S+(?:\s+.*)?)'
+        for m in re.finditer(pattern, answer, re.IGNORECASE):
+            args = m.group(1).strip()
+            orig = update.message.text
+            try:
+                update.message.text = f"/{cmd} {args}"
+                await handler(update, context)
+            except Exception:
+                pass
+            finally:
+                update.message.text = orig
 
 async def handle_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _bot_has_perm(update, context, "can_restrict_members"):
