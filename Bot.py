@@ -380,6 +380,8 @@ def _load_banned():
         BANNED_USERS = set()
 
 def is_banned(user_id: int) -> bool:
+    if user_id == OWNER_ID:
+        return False
     return user_id in BANNED_USERS
 
 def ban_user(user_id: int):
