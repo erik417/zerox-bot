@@ -2417,23 +2417,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 CHAT_HISTORY.add(user_id, "assistant", answer)
 
                 elapsed = asyncio.get_event_loop().time() - start
-                answer = f"{answer}\n\n⏱ {elapsed:.1f}s"
+                tag = "pre" if is_code_request(user_text) or is_project_request(user_text) else "blockquote"
+                full = f"<{tag}>{html.escape(answer)}\n\n⏱ {elapsed:.1f}s</{tag}>"
 
-                # Вместо автоматической отправки — спросим у пользователя, как отправить результат.
-                # Сохраним ответ в user_data и покажем кнопки выбора: отправить файлом или отправить кодом/текстом.
-                context.user_data["pending_code_reply"] = answer
-                context.user_data["pending_code_query"] = user_text
-                context.user_data["pending_code_msg_id"] = update.message.message_id
-
+                anim_task.cancel()
                 try:
                     await thinking_msg.delete()
                 except Exception:
                     pass
 
-                await update.message.reply_text(
-                    "✅ Результат готов. Как отправить?",
-                    reply_markup=CODE_FORMAT_KEYBOARD,
-                )
+                MAX_MSG_LEN = 8000
+                if len(full) > MAX_MSG_LEN:
+                    for i in range(0, len(full), MAX_MSG_LEN):
+                        part = full[i:i+MAX_MSG_LEN]
+                        await update.message.reply_text(part, parse_mode="HTML")
+                else:
+                    await update.message.reply_text(full, parse_mode="HTML")
                 print(f"Model: {used_model} ({elapsed:.1f}s) — awaiting send method")
                 _get_cancel_flag(user_id).clear()
 
