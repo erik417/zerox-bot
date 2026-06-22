@@ -2314,7 +2314,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 history_context = CHAT_HISTORY.format_prompt(user_id)
                 style = OWNER_STYLE + "\n\n" if is_owner(update) else ""
-                prompt = f"{SYSTEM_PROMPT}\n{style}{file_context}\n\n{history_context}=== НОВЫЙ ЗАПРОС ПОЛЬЗОВАТЕЛЯ ===\n{user_text}\n\n=== ТВОЙ ОТВЕТ (продолжи тему из истории) ===".strip()
+                user_info = f"Информация о пользователе: {update.effective_user.first_name or ''} (@{update.effective_user.username or 'нет'}), ID: {update.effective_user.id}\n\n"
+                prompt = f"{SYSTEM_PROMPT}\n{style}{user_info}{file_context}\n\n{history_context}=== НОВЫЙ ЗАПРОС ПОЛЬЗОВАТЕЛЯ ===\n{user_text}\n\n=== ТВОЙ ОТВЕТ (продолжи тему из истории) ===".strip()
 
                 is_prem = PREMIUM_MGR.is_premium(user_id)
                 used_model = AI_MODEL if is_prem else BASIC_MODEL
@@ -2693,9 +2694,11 @@ async def handle_zerox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         history_context = CHAT_HISTORY.format_prompt(user_id)
         style = OWNER_STYLE + "\n\n" if is_owner(update) else ""
+        user_info = f"Информация о пользователе: {update.effective_user.first_name or ''} (@{update.effective_user.username or 'нет'}), ID: {update.effective_user.id}\n\n"
         prompt = (
             f"{SYSTEM_PROMPT}\n"
             f"{style}"
+            f"{user_info}"
             f"{history_context}"
             f"{file_context}"
             f"Отвечай развёрнуто и подробно. Если вопрос про факты, "
