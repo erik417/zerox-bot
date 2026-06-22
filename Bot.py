@@ -2442,6 +2442,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await ai_task
             except asyncio.CancelledError:
                 _get_cancel_flag(user_id).clear()
+                anim_task.cancel()
                 try:
                     await thinking_msg.edit_text("⏹ Остановлено")
                 except Exception:
