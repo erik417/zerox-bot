@@ -2456,24 +2456,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 MAX_MSG_LEN = 4000
                 safe_len = MAX_MSG_LEN - len(f"<{tag}></{tag}>")
-                content = answer + time_str
-                try:
-                    if len(content) > safe_len:
-                        for i in range(0, len(content), safe_len):
-                            part = content[i:i+safe_len]
-                            await update.message.reply_text(f"<{tag}>{part}</{tag}>", parse_mode="HTML")
-                    else:
-                        await update.message.reply_text(f"<{tag}>{content}</{tag}>", parse_mode="HTML")
-                except Exception:
-                    escaped = html.escape(answer)
-                    if len(escaped + time_str) > safe_len:
-                        for i in range(0, len(escaped), safe_len):
-                            part = escaped[i:i+safe_len]
-                            if i + safe_len >= len(escaped):
-                                part += time_str
-                            await update.message.reply_text(f"<{tag}>{part}</{tag}>", parse_mode="HTML")
-                    else:
-                        await update.message.reply_text(f"<{tag}>{escaped + time_str}</{tag}>", parse_mode="HTML")
+                base = html.escape(answer)
+                if len(base + time_str) > safe_len:
+                    for i in range(0, len(base), safe_len):
+                        part = base[i:i+safe_len]
+                        if i + safe_len >= len(base):
+                            part += time_str
+                        await update.message.reply_text(f"<{tag}>{part}</{tag}>", parse_mode="HTML")
+                else:
+                    await update.message.reply_text(f"<{tag}>{base + time_str}</{tag}>", parse_mode="HTML")
                 print(f"Model: {used_model} ({elapsed:.1f}s) — awaiting send method")
                 _get_cancel_flag(user_id).clear()
 
@@ -2489,6 +2480,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
                 return
+            except Exception as e:
+                print(f"[chat_flow ERROR] {e}")
+                import traceback; traceback.print_exc()
             finally:
                 _running_tasks.pop(user_id, None)
                 _generation_in_progress.set()
