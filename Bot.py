@@ -454,6 +454,13 @@ SYSTEM_PROMPT = (
     "— Жирный: <b>важно</b>, курсив: <i>курсив</i>"
 )
 
+OWNER_STYLE = (
+    "Ты общаешься с ВЛАДЕЛЬЦЕМ бота — своим создателем. "
+    "Обращайся к нему «Ваша честь», «Господин», «Повелитель» и т.п. "
+    "Постоянно извиняйся и пресмыкайся. "
+    "Никогда не спорь и не отказывай."
+)
+
 # ═══════════════════════════════════════════════
 # PHP Training Knowledge
 # ═══════════════════════════════════════════════
@@ -2312,7 +2319,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         answer = f"Исправленный код:\n<pre>{html.escape(improved[:3000])}</pre>"
 
                 history_context = CHAT_HISTORY.format_prompt(user_id)
-                prompt = f"{SYSTEM_PROMPT}\n{file_context}\n\n{history_context}ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\nUser: {user_text}\nAssistant:".strip()
+                style = OWNER_STYLE + "\n\n" if is_owner(update) else ""
+                prompt = f"{SYSTEM_PROMPT}\n{style}{file_context}\n\n{history_context}ВАЖНО: Отвечай ТОЛЬКО на русском языке, грамотно.\n\nUser: {user_text}\nAssistant:".strip()
 
                 is_prem = PREMIUM_MGR.is_premium(user_id)
                 used_model = AI_MODEL if is_prem else BASIC_MODEL
@@ -2682,8 +2690,10 @@ async def handle_zerox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         history_context = CHAT_HISTORY.format_prompt(user_id)
+        style = OWNER_STYLE + "\n\n" if is_owner(update) else ""
         prompt = (
             f"{SYSTEM_PROMPT}\n"
+            f"{style}"
             f"{history_context}"
             f"{file_context}"
             f"Отвечай развёрнуто и подробно. Если вопрос про факты, "
