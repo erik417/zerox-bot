@@ -1904,7 +1904,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.effective_user.username or update.effective_user.first_name or str(user_id)
     track_user(user_id, update.effective_user.username)
 
-    if is_banned(user_id):
+    if not is_owner(update) and is_banned(user_id):
         return
 
     # Group chat: ignore messages without @bot_username, unless replying to bot
