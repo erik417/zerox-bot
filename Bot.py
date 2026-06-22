@@ -3839,11 +3839,16 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    HEALTH_PORT = int(os.environ.get("PORT", os.environ.get("SPACE_PORT", "8080")))
     async def healthz(request):
         return aiohttp_web.json_response({"ok": True})
     aio_app = aiohttp_web.Application()
+    aio_app.router.add_get("/", healthz)
     aio_app.router.add_get("/healthz", healthz)
     aio_runner = aiohttp_web.AppRunner(aio_app)
+
+    sys.stderr.write(f"===HEALTH PORT: {HEALTH_PORT}\n")
+    sys.stderr.flush()
 
     async def check_crypto_payments():
         while True:
@@ -3882,14 +3887,14 @@ def main():
 
     async def start_app():
         await aio_runner.setup()
-        site = aiohttp_web.TCPSite(aio_runner, "0.0.0.0", 7860)
+        site = aiohttp_web.TCPSite(aio_runner, "0.0.0.0", HEALTH_PORT)
         await site.start()
         await app.initialize()
         if app.post_init:
             await app.post_init(app)
-        await app.bot.delete_webhook()
-        await app.updater.start_polling()
         await app.start()
+        await app.bot.delete_webhook()
+        asyncio.create_task(app.updater.start_polling())
         asyncio.ensure_future(check_crypto_payments())
         sys.stderr.write("===BOT STARTED (polling + healthz + crypto)===\n")
         sys.stderr.flush()
