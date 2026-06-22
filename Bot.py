@@ -2418,7 +2418,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 elapsed = asyncio.get_event_loop().time() - start
                 tag = "pre" if is_code_request(user_text) or is_project_request(user_text) else "blockquote"
-                full = f"<{tag}>{html.escape(answer)}\n\n⏱ {elapsed:.1f}s</{tag}>"
+                base = html.escape(answer)
+                time_str = f"\n\n⏱ {elapsed:.1f}s"
 
                 anim_task.cancel()
                 try:
@@ -2426,13 +2427,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
 
-                MAX_MSG_LEN = 8000
-                if len(full) > MAX_MSG_LEN:
-                    for i in range(0, len(full), MAX_MSG_LEN):
-                        part = full[i:i+MAX_MSG_LEN]
-                        await update.message.reply_text(part, parse_mode="HTML")
+                MAX_MSG_LEN = 4000
+                safe_len = MAX_MSG_LEN - len(f"<{tag}></{tag}>")
+                if len(base + time_str) > safe_len:
+                    for i in range(0, len(base), safe_len):
+                        part = base[i:i+safe_len]
+                        if i + safe_len >= len(base):
+                            part += time_str
+                        await update.message.reply_text(f"<{tag}>{part}</{tag}>", parse_mode="HTML")
                 else:
-                    await update.message.reply_text(full, parse_mode="HTML")
+                    await update.message.reply_text(f"<{tag}>{base + time_str}</{tag}>", parse_mode="HTML")
                 print(f"Model: {used_model} ({elapsed:.1f}s) — awaiting send method")
                 _get_cancel_flag(user_id).clear()
 
