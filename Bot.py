@@ -2283,7 +2283,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             start = asyncio.get_event_loop().time()
 
             is_analysis = has_code_context and any(w in user_text.lower() for w in ["ошибк", "баг", "bug", "review", "анализ", "провер", "проблем", "качеств", "исправ", "code review", "найди", "найти", "покажи"])
-            chat_max_tokens = 2048 if is_analysis else 512
+            has_code = any(w in user_text.lower() for w in ["<?php", "<?", "class ", "function ", "def ", "import ", "use ", "namespace ", "impl ", "pub ", "fn ", "const ", "let ", "var ", "int ", "str ", "bool "])
+            chat_max_tokens = 4096 if (is_analysis or has_code) else 2048
 
             async def _chat_flow():
                 _get_cancel_flag(user_id).clear()
