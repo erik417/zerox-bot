@@ -417,6 +417,10 @@ def _get_lock(user_id: int) -> asyncio.Lock:
         _user_locks[user_id] = asyncio.Lock()
     return _user_locks[user_id]
 
+# Global event: set when a long generation (code/project) is in progress
+_generation_in_progress = asyncio.Event()
+_generation_in_progress.set()  # Initially idle (set = no generation)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s", force=True)
 for lib in ["httpx", "telegram", "httpcore", "urllib3"]:
     logging.getLogger(lib).setLevel(logging.WARNING)
@@ -1503,8 +1507,8 @@ async def handle_apikeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════
 
 CODE_FORMAT_KEYBOARD = InlineKeyboardMarkup([
-    [InlineKeyboardButton("📦 Отправить файлом (.zip)", callback_data="code_zip")],
-    [InlineKeyboardButton("💬 Отправить кодом", callback_data="code_chat")],
+    [InlineKeyboardButton("📄 Отправить файлом", callback_data="code_zip")],
+    [InlineKeyboardButton("💻 Отправить кодом", callback_data="code_chat")],
 ])
 
 def is_code_request(text: str) -> bool:
@@ -2081,7 +2085,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lock = _get_lock(user_id)
 
+    # If someone (any user) is doing a long generation, show waiting animation
+    wait_anim = None
+    if not _generation_in_progress.is_set():
+        wait_msg = await update.message.reply_text("⏳ Ожидание генерации...")
+        wait_cancel = _get_cancel_flag(user_id)
+        wait_cancel.clear()
+        wait_anim = asyncio.create_task(animate_thinking(wait_msg, wait_cancel, [
+            "⏳ Ожидание генерации...",
+            "⏳ Ожидание генерации..",
+            "⏳ Ожидание генерации.",
+        ], repeat=5))
+
     async with lock:
+        if wait_anim:
+            wait_anim.cancel()
+            try:
+                await wait_msg.delete()
+            except Exception:
+                pass
+
         if context.user_data.get("processing"):
             try:
                 await context.bot.delete_message(
@@ -2255,7 +2278,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             start = asyncio.get_event_loop().time()
 
             is_analysis = has_code_context and any(w in user_text.lower() for w in ["ошибк", "баг", "bug", "review", "анализ", "провер", "проблем", "качеств", "исправ", "code review", "найди", "найти", "покажи"])
-            chat_max_tokens = 1024 if is_analysis else 80
+            chat_max_tokens = 2048 if is_analysis else 512
 
             async def _chat_flow():
                 _get_cancel_flag(user_id).clear()
@@ -2391,8 +2414,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elapsed = asyncio.get_event_loop().time() - start
                 answer = f"{answer}\n\n⏱ {elapsed:.1f}s"
 
-                await animate_reply(thinking_msg, answer, reply_markup=STOP_BUTTON, cancel_event=_get_cancel_flag(user_id))
-                print(f"Model: {used_model} ({elapsed:.1f}s)")
+                # Вместо автоматической отправки — спросим у пользователя, как отправить результат.
+                # Сохраним ответ в user_data и покажем кнопки выбора: отправить файлом или отправить кодом/текстом.
+                context.user_data["pending_code_reply"] = answer
+                context.user_data["pending_code_query"] = user_text
+                context.user_data["pending_code_msg_id"] = update.message.message_id
+
+                try:
+                    await thinking_msg.delete()
+                except Exception:
+                    pass
+
+                await update.message.reply_text(
+                    "✅ Результат готов. Как отправить?",
+                    reply_markup=CODE_FORMAT_KEYBOARD,
+                )
+                print(f"Model: {used_model} ({elapsed:.1f}s) — awaiting send method")
                 _get_cancel_flag(user_id).clear()
 
             ai_task = asyncio.create_task(_chat_flow())
