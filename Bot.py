@@ -2096,6 +2096,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⏳ Ожидание генерации..",
             "⏳ Ожидание генерации.",
         ], repeat=5))
+        await _generation_in_progress.wait()
 
     async with lock:
         if wait_anim:
@@ -2127,6 +2128,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # If user asks for code — generate preview then show format choice
             if is_code_request(user_text):
+                _generation_in_progress.clear()
                 context.user_data["processing"] = True
                 try:
                     thinking_msg = await update.message.reply_text("⏳ Генерирую код...", reply_markup=STOP_BUTTON)
@@ -2156,10 +2158,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 finally:
                     context.user_data["processing"] = False
+                    _generation_in_progress.set()
                 return
 
             # If user asks for a project — auto-generate and send as zip
             if is_project_request(user_text):
+                _generation_in_progress.clear()
                 thinking_msg = await update.message.reply_text("⏳ Генерирую проект...", reply_markup=STOP_BUTTON)
                 cancel = _get_cancel_flag(user_id)
                 cancel.clear()
@@ -2220,6 +2224,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
                 finally:
                     _running_tasks.pop(user_id, None)
+                    _generation_in_progress.set()
                 anim_task.cancel()
 
                 if code == "TIMEOUT" or not code or (isinstance(code, str) and code.startswith("API_ERROR")):
@@ -2445,7 +2450,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             finally:
                 _running_tasks.pop(user_id, None)
-                anim_task.cancel()
+                _generation_in_progress.set()
+            anim_task.cancel()
         finally:
             context.user_data["processing"] = False
 
