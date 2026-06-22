@@ -3411,20 +3411,19 @@ async def handle_kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-_AI_CMD_MAP = {
-    "kick": handle_kick,
-    "ban": handle_ban,
-    "unban": handle_unban,
-    "mute": handle_mute,
-    "unmute": handle_unmute,
-    "warn": handle_warn,
-    "unwarn": handle_unwarn,
-    "clear": handle_clear,
-    "info": handle_info,
-}
-
 async def _exec_ai_commands(answer: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for cmd, handler in _AI_CMD_MAP.items():
+    handlers = {
+        "kick": handle_kick,
+        "ban": handle_ban,
+        "unban": handle_unban,
+        "mute": handle_mute,
+        "unmute": handle_unmute,
+        "warn": handle_warn,
+        "unwarn": handle_unwarn,
+        "clear": handle_clear,
+        "info": handle_info,
+    }
+    for cmd, handler in handlers.items():
         pattern = rf'/{cmd}\s+(\S+(?:\s+.*)?)'
         for m in re.finditer(pattern, answer, re.IGNORECASE):
             args = m.group(1).strip()
