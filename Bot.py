@@ -448,6 +448,24 @@ SYSTEM_PROMPT = (
     "— Жирный: <b>важно</b>, курсив: <i>курсив</i>"
 )
 
+BOT_CAPABILITIES = (
+    "ТЫ — ЭТОТ БОТ. У тебя есть команды, ты можешь их выполнять.\n"
+    "Твои возможности (выполняй их, когда пользователь просит):\n"
+    "— /kick @user — кикнуть участника\n"
+    "— /ban @user — забанить\n"
+    "— /unban @user — разбанить\n"
+    "— /mute @user 10m — замутить (1m, 10m, 1h, 1d)\n"
+    "— /unmute @user — размутить\n"
+    "— /warn @user — выдать предупреждение\n"
+    "— /unwarn @user — снять предупреждение\n"
+    "— /warns @user — показать предупреждения\n"
+    "— /clear 10 — очистить сообщения\n"
+    "— /info @user — информация об участнике\n"
+    "— /pin — закрепить сообщение (ответом на него)\n"
+    "— /role add/remove/emoji/assign/unassign — управление ролями\n"
+    "НЕ говори «я не обладаю полномочиями». Ты можешь делать всё перечисленное."
+)
+
 OWNER_STYLE = (
     "Ты общаешься с ВЛАДЕЛЬЦЕМ бота — своим создателем. "
     "Обращайся к нему «Ваша честь», «Господин», «Повелитель» и т.п. "
@@ -2314,8 +2332,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 history_context = CHAT_HISTORY.format_prompt(user_id)
                 style = OWNER_STYLE + "\n\n" if is_owner(update) else ""
+                caps = BOT_CAPABILITIES + "\n\n" if chat_type in ("group", "supergroup") else ""
                 user_info = f"Информация о пользователе: {update.effective_user.first_name or ''} (@{update.effective_user.username or 'нет'}), ID: {update.effective_user.id}\n\n"
-                prompt = f"{SYSTEM_PROMPT}\n{style}{user_info}{file_context}\n\n{history_context}=== НОВЫЙ ЗАПРОС ПОЛЬЗОВАТЕЛЯ ===\n{user_text}\n\n=== ТВОЙ ОТВЕТ (продолжи тему из истории) ===".strip()
+                prompt = f"{SYSTEM_PROMPT}\n{style}{caps}{user_info}{file_context}\n\n{history_context}=== НОВЫЙ ЗАПРОС ПОЛЬЗОВАТЕЛЯ ===\n{user_text}\n\n=== ТВОЙ ОТВЕТ (продолжи тему из истории) ===".strip()
 
                 is_prem = PREMIUM_MGR.is_premium(user_id)
                 used_model = AI_MODEL if is_prem else BASIC_MODEL
@@ -2694,10 +2713,12 @@ async def handle_zerox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         history_context = CHAT_HISTORY.format_prompt(user_id)
         style = OWNER_STYLE + "\n\n" if is_owner(update) else ""
+        caps = BOT_CAPABILITIES + "\n\n" if update.effective_chat and update.effective_chat.type in ("group", "supergroup") else ""
         user_info = f"Информация о пользователе: {update.effective_user.first_name or ''} (@{update.effective_user.username or 'нет'}), ID: {update.effective_user.id}\n\n"
         prompt = (
             f"{SYSTEM_PROMPT}\n"
             f"{style}"
+            f"{caps}"
             f"{user_info}"
             f"{history_context}"
             f"{file_context}"
