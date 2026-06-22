@@ -1731,7 +1731,7 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "⏳ Думаю..",
                 "⏳ Думаю.",
                 "⏳ Думаю..",
-            ], repeat=2))
+            ], repeat=1))
             project = await generate_project_structure(code_query, user_id)
             anim_task.cancel()
             if not project:
@@ -1767,7 +1767,7 @@ async def handle_code_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                         "⏳ Думаю..",
                         "⏳ Думаю.",
                         "⏳ Думаю..",
-                    ], repeat=2))
+                    ], repeat=1))
                     code = await ai_task
                 except asyncio.CancelledError:
                     _get_cancel_flag(user_id).clear()
@@ -2095,7 +2095,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⏳ Ожидание генерации...",
             "⏳ Ожидание генерации..",
             "⏳ Ожидание генерации.",
-        ], repeat=5))
+        ], repeat=1))
         await _generation_in_progress.wait()
 
     async with lock:
@@ -2142,7 +2142,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "⏳ Думаю..",
                         "⏳ Думаю.",
                         "⏳ Думаю..",
-                    ], repeat=2))
+                    ], repeat=1))
                     code = await generate_code(user_text, user_id)
                     anim_task.cancel()
                     if code == "TIMEOUT" or not code or (isinstance(code, str) and code.startswith("API_ERROR")):
@@ -2176,7 +2176,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "⏳ Думаю..",
                     "⏳ Думаю.",
                     "⏳ Думаю..",
-                ], repeat=2))
+                ], repeat=1))
                 start = asyncio.get_event_loop().time()
                 _get_cancel_flag(user_id).clear()
 
@@ -2279,7 +2279,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⏳ Думаю..",
                 "⏳ Думаю.",
                 "⏳ Думаю..",
-            ], repeat=2))
+            ], repeat=1))
             start = asyncio.get_event_loop().time()
 
             is_analysis = has_code_context and any(w in user_text.lower() for w in ["ошибк", "баг", "bug", "review", "анализ", "провер", "проблем", "качеств", "исправ", "code review", "найди", "найти", "покажи"])
@@ -2656,7 +2656,7 @@ async def handle_zerox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⏳ Думаю..",
         "⏳ Думаю.",
         "⏳ Думаю..",
-    ], repeat=2))
+    ], repeat=1))
     start = asyncio.get_event_loop().time()
     _get_cancel_flag(user_id).clear()
 
