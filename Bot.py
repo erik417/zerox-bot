@@ -3774,10 +3774,11 @@ def main():
     if worker_url:
         request = HTTPXRequest(connect_timeout=15, read_timeout=30, media_write_timeout=30)
         base = worker_url.rstrip("/")
+        # PTB v21+ does base_url + token (base_url must include /bot/ prefix)
         bot = Bot(
             token=TOKEN,
-            base_url=base,
-            base_file_url=base,
+            base_url=f"{base}/bot",
+            base_file_url=f"{base}/file/bot",
             request=request,
         )
         builder = ApplicationBuilder().bot(bot).post_init(post_init)
@@ -3941,7 +3942,6 @@ def main():
             if not init_ok:
                 app._application_initialized = True
                 app._initialized = True
-                app.running = False
                 sys.stderr.write("===FORCE INIT FLAG===\n")
                 sys.stderr.flush()
 
