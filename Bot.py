@@ -3939,7 +3939,9 @@ def main():
                 sys.stderr.flush()
 
             if not init_ok:
+                app._application_initialized = True
                 app._initialized = True
+                app.running = False
                 sys.stderr.write("===FORCE INIT FLAG===\n")
                 sys.stderr.flush()
 
