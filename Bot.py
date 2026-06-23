@@ -3914,9 +3914,10 @@ def main():
                         await app.process_update(update)
                         return aiohttp_web.Response(text="ok")
                     except Exception as e:
-                        sys.stderr.write(f"===WEBHOOK ERROR: {e}\n")
+                        tb = traceback.format_exc()
+                        sys.stderr.write(f"===WEBHOOK ERROR: {e}\n{tb}\n")
                         sys.stderr.flush()
-                        return aiohttp_web.Response(text="error", status=500)
+                        return aiohttp_web.Response(text=f"error: {e}", status=500)
                 aio_app.router.add_post("/webhook", webhook_handle)
 
             sys.stderr.write("===SETUP HTTP SERVER===\n")
