@@ -3901,6 +3901,23 @@ def main():
         sys.stderr.write("===START_APP BEGIN===\n")
         sys.stderr.flush()
         try:
+            webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
+
+            if webhook_url:
+                sys.stderr.write(f"===WEBHOOK MODE ENABLED: {webhook_url}/webhook ===\n")
+
+                async def webhook_handle(request):
+                    try:
+                        json_data = await request.json()
+                        update = Update.de_json(json_data, app.bot)
+                        await app.process_update(update)
+                        return aiohttp_web.Response(text="ok")
+                    except Exception as e:
+                        sys.stderr.write(f"===WEBHOOK ERROR: {e}\n")
+                        sys.stderr.flush()
+                        return aiohttp_web.Response(text="error", status=500)
+                aio_app.router.add_post("/webhook", webhook_handle)
+
             sys.stderr.write("===SETUP HTTP SERVER===\n")
             sys.stderr.flush()
             await aio_runner.setup()
@@ -3922,24 +3939,9 @@ def main():
                     sys.stderr.write(f"===POST_INIT ERROR: {e}\n")
                     sys.stderr.flush()
 
-            webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
-
             if webhook_url:
-                sys.stderr.write(f"===WEBHOOK MODE: {webhook_url}/webhook ===\n")
+                sys.stderr.write("===SET WEBHOOK===\n")
                 sys.stderr.flush()
-
-                async def webhook_handle(request):
-                    try:
-                        json_data = await request.json()
-                        update = Update.de_json(json_data, app.bot)
-                        await app.process_update(update)
-                        return aiohttp_web.Response(text="ok")
-                    except Exception as e:
-                        sys.stderr.write(f"===WEBHOOK ERROR: {e}\n")
-                        sys.stderr.flush()
-                        return aiohttp_web.Response(text="error", status=500)
-                aio_app.router.add_post("/webhook", webhook_handle)
-
                 try:
                     await app.bot.set_webhook(url=f"{webhook_url}/webhook")
                 except Exception as e:
