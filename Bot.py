@@ -3729,6 +3729,7 @@ def main():
     sys.stderr.write(f"===== DIAG: WEBHOOK_URL={webhook_url or 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: HTTPS_PROXY={'SET' if proxy_env else 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_API_URL={AI_API_URL} =====\n")
+    sys.stderr.write(f"===== DIAG: BOT_TOKEN={'SET (env)' if os.environ.get('BOT_TOKEN') else 'USING FALLBACK (may be invalid)'} =====\n")
     sys.stderr.flush()
 
     async def post_init(app):
