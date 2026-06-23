@@ -3784,18 +3784,10 @@ def main():
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
         sys.stderr.write(f"===== DIAG: USING PROXY={proxy or 'NONE'} =====\n")
         sys.stderr.flush()
-        request = HTTPXRequest(
-            connect_timeout=60,
-            read_timeout=120,
-            proxy_url=proxy or None,
-        )
-        bot = Bot(token=TOKEN, request=request)
-        app = (
-            ApplicationBuilder()
-            .bot(bot)
-            .post_init(post_init)
-            .build()
-        )
+        builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
+        if proxy:
+            builder = builder.proxy_url(proxy)
+        app = builder.build()
 
     sys.stderr.write("===APPLICATION BUILT===\n")
     sys.stderr.flush()
