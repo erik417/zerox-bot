@@ -3783,6 +3783,9 @@ def main():
             builder = builder.proxy_url(proxy)
         app = builder.build()
 
+    sys.stderr.write("===APPLICATION BUILT===\n")
+    sys.stderr.flush()
+
     async def handle_ptb_error(u, c):
         sys.stderr.write(f"===PTB_ERROR===: {c.error}\n")
         sys.stderr.flush()
@@ -3839,15 +3842,17 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    HEALTH_PORT = int(os.environ.get("PORT", os.environ.get("SPACE_PORT", "8080")))
+    HEALTH_PORT = int(os.environ.get("PORT", os.environ.get("SPACE_PORT", "7860")))
     async def healthz(request):
         return aiohttp_web.json_response({"ok": True})
     aio_app = aiohttp_web.Application()
-    aio_app.router.add_get("/", healthz)
-    aio_app.router.add_get("/healthz", healthz)
+    aio_app.router.add_route("*", "/", healthz)
+    aio_app.router.add_route("*", "/healthz", healthz)
+    aio_app.router.add_route("*", "/{tail:.*}", healthz)
     aio_runner = aiohttp_web.AppRunner(aio_app)
 
     sys.stderr.write(f"===HEALTH PORT: {HEALTH_PORT}\n")
+    sys.stderr.write("===HEALTH ROUTES: /, /healthz, catchall\n")
     sys.stderr.flush()
 
     async def check_crypto_payments():
@@ -3886,18 +3891,72 @@ def main():
             await asyncio.sleep(30)
 
     async def start_app():
-        await aio_runner.setup()
-        site = aiohttp_web.TCPSite(aio_runner, "0.0.0.0", HEALTH_PORT)
-        await site.start()
-        await app.initialize()
-        if app.post_init:
-            await app.post_init(app)
-        await app.start()
-        await app.bot.delete_webhook()
-        asyncio.create_task(app.updater.start_polling())
-        asyncio.ensure_future(check_crypto_payments())
-        sys.stderr.write("===BOT STARTED (polling + healthz + crypto)===\n")
+        sys.stderr.write("===START_APP BEGIN===\n")
         sys.stderr.flush()
+        try:
+            sys.stderr.write("===SETUP HTTP SERVER===\n")
+            sys.stderr.flush()
+            await aio_runner.setup()
+            site = aiohttp_web.TCPSite(aio_runner, "0.0.0.0", HEALTH_PORT)
+            await site.start()
+
+            sys.stderr.write("===INIT APPLICATION===\n")
+            sys.stderr.flush()
+            await app.initialize()
+            if app.post_init:
+                await app.post_init(app)
+
+            webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
+
+            if webhook_url:
+                sys.stderr.write(f"===WEBHOOK MODE: {webhook_url}/webhook ===\n")
+                sys.stderr.flush()
+
+                async def webhook_handle(request):
+                    try:
+                        json_data = await request.json()
+                        update = Update.de_json(json_data, app.bot)
+                        await app.process_update(update)
+                        return aiohttp_web.Response(text="ok")
+                    except Exception as e:
+                        sys.stderr.write(f"===WEBHOOK ERROR: {e}\n")
+                        sys.stderr.flush()
+                        return aiohttp_web.Response(text="error", status=500)
+                aio_app.router.add_post("/webhook", webhook_handle)
+
+                await app.bot.set_webhook(url=f"{webhook_url}/webhook")
+                await app.start()
+                sys.stderr.write("===BOT STARTED (webhook + healthz + crypto)===\n")
+                sys.stderr.flush()
+            else:
+                sys.stderr.write("===POLLING MODE===\n")
+                sys.stderr.flush()
+                await app.start()
+                try:
+                    await app.bot.delete_webhook()
+                except Exception as e:
+                    sys.stderr.write(f"===DELETE WEBHOOK FAILED: {e}\n")
+                    sys.stderr.flush()
+
+                sys.stderr.write("===START POLLING TASK===\n")
+                sys.stderr.flush()
+                polling_task = asyncio.create_task(app.updater.start_polling())
+                polling_task.add_done_callback(
+                    lambda t: sys.stderr.write(f"===POLLING TASK DONE: {t.exception() if t.exception() else 'ok'}\n") or sys.stderr.flush()
+                    if t.done() else None
+                )
+                sys.stderr.write("===BOT STARTED (polling + healthz + crypto)===\n")
+                sys.stderr.flush()
+
+            sys.stderr.write("===START CRYPTO CHECK===\n")
+            sys.stderr.flush()
+            asyncio.create_task(check_crypto_payments())
+
+        except Exception as e:
+            sys.stderr.write(f"===START_APP ERROR: {type(e).__name__}: {e}\n")
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
+            raise
 
     try:
         loop.run_until_complete(start_app())
