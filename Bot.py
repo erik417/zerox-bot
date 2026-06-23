@@ -3722,7 +3722,7 @@ def main():
 
     worker_url = os.environ.get("WORKER_URL")
     webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
-    proxy_env = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or ""
+    proxy_env = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("https_proxy") or os.environ.get("http_proxy") or ""
     sys.stderr.write(f"===== DIAG: AI_API_KEY={'SET' if AI_API_KEY else 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_MODEL={AI_MODEL} =====\n")
     sys.stderr.write(f"===== DIAG: WORKER_URL={worker_url or 'NOT SET'} =====\n")
@@ -3781,7 +3781,7 @@ def main():
         builder = ApplicationBuilder().bot(bot).post_init(post_init)
         app = builder.build()
     else:
-        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("https_proxy") or os.environ.get("http_proxy")
         sys.stderr.write(f"===== DIAG: USING PROXY={proxy or 'NONE'} =====\n")
         sys.stderr.flush()
         builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
