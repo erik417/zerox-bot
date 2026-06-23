@@ -3721,9 +3721,13 @@ def main():
         return
 
     worker_url = os.environ.get("WORKER_URL")
+    webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
+    proxy_env = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or ""
     sys.stderr.write(f"===== DIAG: AI_API_KEY={'SET' if AI_API_KEY else 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_MODEL={AI_MODEL} =====\n")
     sys.stderr.write(f"===== DIAG: WORKER_URL={worker_url or 'NOT SET'} =====\n")
+    sys.stderr.write(f"===== DIAG: WEBHOOK_URL={webhook_url or 'NOT SET'} =====\n")
+    sys.stderr.write(f"===== DIAG: HTTPS_PROXY={'SET' if proxy_env else 'NOT SET'} =====\n")
     sys.stderr.write(f"===== DIAG: AI_API_URL={AI_API_URL} =====\n")
     sys.stderr.flush()
 
@@ -3778,10 +3782,20 @@ def main():
         app = builder.build()
     else:
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-        builder = ApplicationBuilder().token(TOKEN).connect_timeout(60).read_timeout(120).post_init(post_init)
-        if proxy:
-            builder = builder.proxy_url(proxy)
-        app = builder.build()
+        sys.stderr.write(f"===== DIAG: USING PROXY={proxy or 'NONE'} =====\n")
+        sys.stderr.flush()
+        request = HTTPXRequest(
+            connect_timeout=60,
+            read_timeout=120,
+            proxy_url=proxy or None,
+        )
+        bot = Bot(token=TOKEN, request=request)
+        app = (
+            ApplicationBuilder()
+            .bot(bot)
+            .post_init(post_init)
+            .build()
+        )
 
     sys.stderr.write("===APPLICATION BUILT===\n")
     sys.stderr.flush()
@@ -3902,9 +3916,18 @@ def main():
 
             sys.stderr.write("===INIT APPLICATION===\n")
             sys.stderr.flush()
-            await app.initialize()
+            try:
+                await app.initialize()
+            except Exception as e:
+                sys.stderr.write(f"===INIT ERROR (continuing): {e}\n")
+                sys.stderr.flush()
+
             if app.post_init:
-                await app.post_init(app)
+                try:
+                    await app.post_init(app)
+                except Exception as e:
+                    sys.stderr.write(f"===POST_INIT ERROR: {e}\n")
+                    sys.stderr.flush()
 
             webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
 
@@ -3924,14 +3947,26 @@ def main():
                         return aiohttp_web.Response(text="error", status=500)
                 aio_app.router.add_post("/webhook", webhook_handle)
 
-                await app.bot.set_webhook(url=f"{webhook_url}/webhook")
-                await app.start()
+                try:
+                    await app.bot.set_webhook(url=f"{webhook_url}/webhook")
+                except Exception as e:
+                    sys.stderr.write(f"===SET WEBHOOK ERROR (continuing): {e}\n")
+                    sys.stderr.flush()
+                try:
+                    await app.start()
+                except Exception as e:
+                    sys.stderr.write(f"===APP START ERROR (continuing): {e}\n")
+                    sys.stderr.flush()
                 sys.stderr.write("===BOT STARTED (webhook + healthz + crypto)===\n")
                 sys.stderr.flush()
             else:
                 sys.stderr.write("===POLLING MODE===\n")
                 sys.stderr.flush()
-                await app.start()
+                try:
+                    await app.start()
+                except Exception as e:
+                    sys.stderr.write(f"===APP START ERROR (continuing): {e}\n")
+                    sys.stderr.flush()
                 try:
                     await app.bot.delete_webhook()
                 except Exception as e:
@@ -3940,11 +3975,15 @@ def main():
 
                 sys.stderr.write("===START POLLING TASK===\n")
                 sys.stderr.flush()
-                polling_task = asyncio.create_task(app.updater.start_polling())
-                polling_task.add_done_callback(
-                    lambda t: sys.stderr.write(f"===POLLING TASK DONE: {t.exception() if t.exception() else 'ok'}\n") or sys.stderr.flush()
-                    if t.done() else None
-                )
+                try:
+                    polling_task = asyncio.create_task(app.updater.start_polling())
+                    polling_task.add_done_callback(
+                        lambda t: sys.stderr.write(f"===POLLING TASK DONE: {t.exception() if t.exception() else 'ok'}\n") or sys.stderr.flush()
+                        if t.done() else None
+                    )
+                except Exception as e:
+                    sys.stderr.write(f"===POLLING START ERROR: {e}\n")
+                    sys.stderr.flush()
                 sys.stderr.write("===BOT STARTED (polling + healthz + crypto)===\n")
                 sys.stderr.flush()
 
