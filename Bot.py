@@ -3928,10 +3928,19 @@ def main():
 
             sys.stderr.write("===INIT APPLICATION===\n")
             sys.stderr.flush()
+            init_ok = False
             try:
                 await app.initialize()
+                init_ok = True
+                sys.stderr.write("===INIT OK===\n")
+                sys.stderr.flush()
             except Exception as e:
                 sys.stderr.write(f"===INIT ERROR (continuing): {e}\n")
+                sys.stderr.flush()
+
+            if not init_ok:
+                app._initialized = True
+                sys.stderr.write("===FORCE INIT FLAG===\n")
                 sys.stderr.flush()
 
             if app.post_init:
