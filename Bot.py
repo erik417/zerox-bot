@@ -3772,10 +3772,11 @@ def main():
 
     if worker_url:
         request = HTTPXRequest(connect_timeout=15, read_timeout=30, media_write_timeout=30)
+        base = worker_url.rstrip("/")
         bot = Bot(
             token=TOKEN,
-            base_url=f"{worker_url.rstrip('/')}/bot",
-            base_file_url=f"{worker_url.rstrip('/')}/file/bot",
+            base_url=base,
+            base_file_url=base,
             request=request,
         )
         builder = ApplicationBuilder().bot(bot).post_init(post_init)
